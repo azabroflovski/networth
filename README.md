@@ -73,6 +73,19 @@ curl -s -XPOST localhost:4000/api/workspaces/$WORKSPACE_ID/accounts \
 
 Тесты с БД выполняются последовательно и очищают таблицы перед каждым тестом.
 
+## Production
+
+Сборка — `mix release`, Mix и исходники на сервере не нужны:
+
+```sh
+MIX_ENV=prod mix release
+export DATABASE_URL=postgres://user:pass@host:5432/networth PORT=4000
+_build/prod/rel/networth/bin/networth eval "Networth.Release.migrate()"   # применить миграции
+_build/prod/rel/networth/bin/networth start                                # или daemon / stop
+```
+
+В prod `DATABASE_URL` обязательна, HTTP-сервер включён всегда. `GET /health` проверяет соединение с БД: 200 `{"status":"ok"}` или 503 (при недоступной БД ответ приходит через ~5 с — таймаут ожидания соединения в пуле). Релиз собирается под ту же ОС и архитектуру, где будет запущен.
+
 ## Миграции
 
 `priv/migrations/NNNN_name.sql`. Каждый файл применяется целиком в одной транзакции вместе с записью в `schema_migrations`. Пока нет развёрнутых баз, миграции правятся на месте (`mix db.reset`); после первого развёртывания применённую миграцию не редактируем — изменения новым файлом. Отката нет. Ограничения финансовых таблиц (DOMAIN, «Финансовые инварианты») не ослабляются без записи в DECISIONS.
@@ -83,6 +96,7 @@ curl -s -XPOST localhost:4000/api/workspaces/$WORKSPACE_ID/accounts \
 lib/networth/
   db.ex              пул Postgrex, запросы, транзакции
   migrator.ex        применение SQL-миграций
+  release.ex         миграции в собранном релизе
   uuid.ex            UUID как строки; Postgrex-расширение для типа uuid
   money.ex           разбор/форматирование сумм, курс обмена
   currencies.ex      справочник валют
@@ -119,6 +133,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 
 | Метод и путь | Назначение |
 |---|---|
+| `GET /health` | проверка соединения с БД, без авторизации |
 | `POST /api/register` | `{email, name, password, timezone?}` → пользователь, личный workspace, токен |
 | `POST /api/login`, `POST /api/logout` | вход / отзыв текущего токена; слишком много попыток — 429 с `retry-after` |
 | `GET /api/me` | пользователь и его workspaces |

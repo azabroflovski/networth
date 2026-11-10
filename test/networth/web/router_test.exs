@@ -394,6 +394,10 @@ defmodule Networth.Web.RouterTest do
              request(:get, members_path, nil, bob)
   end
 
+  test "health check" do
+    assert {200, %{"status" => "ok"}} = request(:get, "/health")
+  end
+
   test "validation errors, malformed JSON and unknown routes" do
     {token, ws} = register("errors@example.com")
 

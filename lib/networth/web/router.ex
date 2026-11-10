@@ -72,6 +72,13 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  get "/health" do
+    case Networth.DB.query("SELECT 1") do
+      {:ok, _} -> send_json(conn, 200, %{status: "ok"})
+      {:error, _} -> send_json(conn, 503, %{status: "database_unavailable"})
+    end
+  end
+
   get "/api/currencies" do
     send_json(conn, 200, %{currencies: Enum.map(Currencies.list(), &View.currency/1)})
   end
