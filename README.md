@@ -92,6 +92,7 @@ lib/networth/
   workspaces.ex      workspaces, членство, приглашения, authorize/2
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
+  reports.ex         отчёты (только чтение)
   categories.ex      категории
   tags.ex            теги
   web/router.ex      HTTP API
@@ -126,6 +127,9 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/invitations`, `POST /api/invitations/:id/accept` | мои приглашения / принять |
 | `GET/POST /api/workspaces/:wid/accounts` | счета с балансами / `{name, type, currency, opening_balance?, opened_on?}` |
 | `GET/PATCH /api/workspaces/:wid/accounts/:id` | счёт / `{name?, archived?}` |
+| `GET /api/workspaces/:wid/accounts/:id/activity?from=&to=` | движение по счёту: остаток на начало, приход, расход, остаток на конец |
+| `GET /api/workspaces/:wid/reports/income-expense?from=&to=` | доходы и расходы по валютам и категориям, итог |
+| `GET /api/workspaces/:wid/reports/balances?on=` | балансы счетов на конец даты |
 | `GET /api/workspaces/:wid/transactions` | история; `account_id, category_id, tag_id, type, from, to, limit, offset` |
 | `POST /api/workspaces/:wid/transactions` | провести операцию |
 | `GET /api/workspaces/:wid/transactions/:id` | операция с проводками |

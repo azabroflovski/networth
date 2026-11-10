@@ -123,6 +123,69 @@ defmodule Networth.Web.RouterTest do
            }
   end
 
+  test "reports" do
+    {token, ws} = register("reports@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{
+          name: "Cash",
+          type: "cash",
+          currency: "UZS",
+          opening_balance: "1000",
+          opened_on: "2026-10-01"
+        },
+        token
+      )
+
+    {201, _} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/transactions",
+        %{type: "expense", account_id: cash["id"], amount: "250.50", occurred_on: "2026-10-05"},
+        token
+      )
+
+    period = "from=2026-10-01&to=2026-10-31"
+
+    assert {200, %{"report" => %{"currencies" => [uzs]}}} =
+             request(:get, "/api/workspaces/#{ws}/reports/income-expense?#{period}", nil, token)
+
+    assert %{
+             "currency" => "UZS",
+             "net" => "-250.50",
+             "expense" => %{
+               "total" => "250.50",
+               "categories" => [%{"category_id" => nil, "total" => "250.50"}]
+             },
+             "income" => %{"total" => "0.00", "categories" => []}
+           } = uzs
+
+    assert {200,
+            %{"report" => %{"on" => "2026-10-04", "accounts" => [%{"balance" => "1000.00"}]}}} =
+             request(:get, "/api/workspaces/#{ws}/reports/balances?on=2026-10-04", nil, token)
+
+    assert {200, %{"activity" => activity}} =
+             request(
+               :get,
+               "/api/workspaces/#{ws}/accounts/#{cash["id"]}/activity?#{period}",
+               nil,
+               token
+             )
+
+    assert Map.take(activity, ~w(opening_balance inflow outflow closing_balance)) == %{
+             "opening_balance" => "0.00",
+             "inflow" => "1000.00",
+             "outflow" => "250.50",
+             "closing_balance" => "749.50"
+           }
+
+    assert {422, %{"errors" => %{"from" => _}}} =
+             request(:get, "/api/workspaces/#{ws}/reports/income-expense", nil, token)
+  end
+
   test "authentication is required and tokens can be revoked" do
     {token, ws} = register("auth@example.com")
 

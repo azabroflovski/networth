@@ -7,7 +7,7 @@ defmodule Networth.Web.Router do
   use Plug.Router
   use Plug.ErrorHandler
 
-  alias Networth.{Accounts, Categories, Currencies, Ledger, Tags, Users, Workspaces}
+  alias Networth.{Accounts, Categories, Currencies, Ledger, Reports, Tags, Users, Workspaces}
   alias Networth.Web.JSON, as: View
 
   plug :match
@@ -152,6 +152,33 @@ defmodule Networth.Web.Router do
   patch "/api/workspaces/:wid/accounts/:id" do
     in_workspace(conn, wid, fn scope ->
       Accounts.update(scope, id, conn.body_params) |> render(conn, 200, :account, &View.account/1)
+    end)
+  end
+
+  get "/api/workspaces/:wid/accounts/:id/activity" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+
+      Reports.account_activity(scope, id, conn.query_params)
+      |> render(conn, 200, :activity, &View.account_activity/1)
+    end)
+  end
+
+  # Reports
+
+  get "/api/workspaces/:wid/reports/income-expense" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+
+      Reports.income_expense(scope, conn.query_params)
+      |> render(conn, 200, :report, &View.income_expense/1)
+    end)
+  end
+
+  get "/api/workspaces/:wid/reports/balances" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+      Reports.balances(scope, conn.query_params) |> render(conn, 200, :report, &View.balances/1)
     end)
   end
 
