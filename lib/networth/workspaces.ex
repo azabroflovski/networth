@@ -8,6 +8,8 @@ defmodule Networth.Workspaces do
 
   alias Networth.{Categories, DB, Params, Scope, Users}
 
+  require Logger
+
   @doc "Creates a workspace owned by `user_id`, seeded with default categories."
   def create(user_id, params) do
     with {:ok, name} <- Params.string(params, "name", required: true),
@@ -80,6 +82,90 @@ defmodule Networth.Workspaces do
 
       {:ok, get(scope)}
     end
+  end
+
+  @doc """
+  Schedules the workspace for deletion after the configured delay (7 days).
+  Owner only; `confirm` must equal the workspace name. Until then the
+  workspace works as usual and the deletion can be cancelled.
+  """
+  def schedule_deletion(%Scope{} = scope, params) do
+    workspace = get(scope)
+    days = Application.fetch_env!(:networth, :workspace_deletion_delay_days)
+
+    with :ok <- require_owner(scope),
+         :ok <-
+           if(params["confirm"] == workspace.name,
+             do: :ok,
+             else: Params.invalid("confirm", "must match the workspace name")
+           ) do
+      DB.query!(
+        """
+        UPDATE workspaces SET deletion_scheduled_at = now() + make_interval(days => $2)
+        WHERE id = $1 AND deletion_scheduled_at IS NULL
+        """,
+        [scope.workspace_id, days]
+      )
+
+      {:ok, get(scope)}
+    end
+  end
+
+  def cancel_deletion(%Scope{} = scope) do
+    with :ok <- require_owner(scope) do
+      DB.query!("UPDATE workspaces SET deletion_scheduled_at = NULL WHERE id = $1", [
+        scope.workspace_id
+      ])
+
+      {:ok, get(scope)}
+    end
+  end
+
+  @doc """
+  Physically deletes every workspace whose deletion time has passed, with all
+  its data. Returns the number of purged workspaces.
+  """
+  def purge_due_deletions do
+    "SELECT id FROM workspaces WHERE deletion_scheduled_at <= now()"
+    |> DB.all()
+    |> Enum.count(&(purge(&1.id) == {:ok, true}))
+  end
+
+  # One failing workspace must not stop the others; the next run retries it.
+  defp purge(id) do
+    purge!(id)
+  rescue
+    error ->
+      Logger.error("Failed to purge workspace #{id}: #{Exception.message(error)}")
+      {:error, error}
+  end
+
+  # Children first; in each table one statement deletes all rows, so
+  # references between rows of the same table are checked once at its end.
+  @purge_order ~w(transaction_tags transaction_changes exchanges ledger_entries transactions
+                  budgets accounts categories tags workspace_invitations workspace_members)
+
+  defp purge!(id) do
+    DB.transaction(fn ->
+      # Locking the row blocks new rows referencing the workspace until we
+      # commit, and re-checks that the deletion was not cancelled meanwhile.
+      if DB.one(
+           "SELECT id FROM workspaces WHERE id = $1 AND deletion_scheduled_at <= now() FOR UPDATE",
+           [id]
+         ) do
+        # Lets the append-only triggers allow deleting this workspace's rows only.
+        DB.query!("SELECT set_config('networth.purge_workspace', $1, true)", [id])
+
+        for table <- @purge_order,
+            do: DB.query!("DELETE FROM #{table} WHERE workspace_id = $1", [id])
+
+        DB.query!("DELETE FROM workspaces WHERE id = $1", [id])
+        Logger.info("Purged workspace #{id}")
+        true
+      else
+        false
+      end
+    end)
   end
 
   @doc "Today's date in the workspace timezone."

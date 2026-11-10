@@ -5,7 +5,7 @@ defmodule Networth.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [Networth.DB, Networth.RateLimit, Networth.TokenCleanup] ++ http_server()
+    children = [Networth.DB, Networth.RateLimit, Networth.Maintenance] ++ http_server()
     Supervisor.start_link(children, strategy: :one_for_one, name: Networth.Supervisor)
   end
 

@@ -127,6 +127,19 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  delete "/api/workspaces/:wid" do
+    in_workspace(conn, wid, fn scope ->
+      Workspaces.schedule_deletion(scope, conn.body_params)
+      |> render(conn, 202, :workspace, &View.workspace/1)
+    end)
+  end
+
+  post "/api/workspaces/:wid/restore" do
+    in_workspace(conn, wid, fn scope ->
+      Workspaces.cancel_deletion(scope) |> render(conn, 200, :workspace, &View.workspace/1)
+    end)
+  end
+
   get "/api/workspaces/:wid/members" do
     in_workspace(conn, wid, fn scope ->
       send_json(conn, 200, %{members: Enum.map(Workspaces.list_members(scope), &View.member/1)})

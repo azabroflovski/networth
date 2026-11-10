@@ -104,7 +104,7 @@ lib/networth/
   scope.ex           %Scope{user_id, workspace_id, role}
   users.ex           регистрация, вход, пароли, токены
   rate_limit.ex      счётчики попыток в ETS
-  token_cleanup.ex   ежечасное удаление просроченных токенов
+  maintenance.ex     ежечасно: просроченные токены, удаление назначенных workspace
   workspaces.ex      workspaces, членство, приглашения, authorize/2
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
@@ -140,6 +140,8 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/currencies` | справочник валют |
 | `GET/POST /api/workspaces` | список / создание `{name, timezone?}` |
 | `GET/PATCH /api/workspaces/:wid` | просмотр / `{name?, timezone?}` (owner) |
+| `DELETE /api/workspaces/:wid` | назначить удаление через 7 дней `{confirm: <имя workspace>}` (owner); 202 |
+| `POST /api/workspaces/:wid/restore` | отменить назначенное удаление (owner) |
 | `GET /api/workspaces/:wid/members` | участники |
 | `PATCH /api/workspaces/:wid/members/:user_id` | роль `{role}` (owner) |
 | `DELETE /api/workspaces/:wid/members/:user_id` | удалить участника (owner) или выйти (свой id) |

@@ -1,5 +1,8 @@
-defmodule Networth.TokenCleanup do
-  @moduledoc "Deletes expired bearer tokens once an hour."
+defmodule Networth.Maintenance do
+  @moduledoc """
+  Hourly housekeeping: deletes expired tokens and purges workspaces whose
+  scheduled deletion time has passed.
+  """
 
   use GenServer
 
@@ -16,6 +19,7 @@ defmodule Networth.TokenCleanup do
   @impl true
   def handle_info(:run, state) do
     Networth.Users.delete_expired_tokens()
+    Networth.Workspaces.purge_due_deletions()
     schedule()
     {:noreply, state}
   end

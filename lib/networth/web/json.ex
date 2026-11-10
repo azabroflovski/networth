@@ -8,7 +8,8 @@ defmodule Networth.Web.JSON do
 
   def user(u), do: Map.take(u, [:id, :email, :name, :inserted_at])
 
-  def workspace(w), do: Map.take(w, [:id, :name, :timezone, :role, :inserted_at])
+  def workspace(w),
+    do: Map.take(w, [:id, :name, :timezone, :role, :deletion_scheduled_at, :inserted_at])
 
   def member(m), do: Map.take(m, [:user_id, :email, :name, :role, :inserted_at])
 
