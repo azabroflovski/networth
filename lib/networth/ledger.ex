@@ -52,8 +52,12 @@ defmodule Networth.Ledger do
           end
         end)
 
+      # ON CONFLICT only covers the key's index. A concurrent retry with the
+      # same client id can collide on the primary key first, so id_taken is a
+      # retry if the key exists.
       case result do
-        {:error, :duplicate} -> replay(scope, attrs)
+        {:error, :duplicate} -> replay(scope, attrs, result)
+        {:error, :id_taken} when attrs.idempotency_key != nil -> replay(scope, attrs, result)
         other -> other
       end
     end
@@ -73,7 +77,7 @@ defmodule Networth.Ledger do
          tag_ids: tag_ids,
          id: id,
          idempotency_key: key,
-         idempotency_hash: key && request_hash(params)
+         idempotency_hash: key && Params.request_hash(params)
        }}
     end
   end
@@ -88,17 +92,18 @@ defmodule Networth.Ledger do
     end
   end
 
-  defp request_hash(params),
-    do: :crypto.hash(:sha256, :erlang.term_to_binary(params, [:deterministic]))
-
-  defp replay(scope, attrs) do
-    %{id: id, idempotency_hash: hash} =
+  defp replay(scope, attrs, failed) do
+    existing =
       DB.one(
         "SELECT id, idempotency_hash FROM transactions WHERE workspace_id = $1 AND idempotency_key = $2",
         [scope.workspace_id, attrs.idempotency_key]
       )
 
-    if hash == attrs.idempotency_hash, do: get(scope, id), else: {:error, :idempotency_key_reused}
+    cond do
+      is_nil(existing) -> failed
+      existing.idempotency_hash == attrs.idempotency_hash -> get(scope, existing.id)
+      true -> {:error, :idempotency_key_reused}
+    end
   end
 
   defp build(type, scope, params) when type in ["expense", "income"] do

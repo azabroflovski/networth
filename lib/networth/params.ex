@@ -114,6 +114,10 @@ defmodule Networth.Params do
     end
   end
 
+  @doc "Fingerprint of a request, stored with an idempotency key to detect its reuse with other params."
+  def request_hash(params),
+    do: :crypto.hash(:sha256, :erlang.term_to_binary(params, [:deterministic]))
+
   @doc "Cast an id from a UUID string; nil if it is not one."
   def cast_id(value), do: Networth.UUID.cast(value)
 end

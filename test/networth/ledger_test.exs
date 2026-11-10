@@ -375,6 +375,27 @@ defmodule Networth.LedgerTest do
       assert balance(scope, cash.id) == 99_999_900
     end
 
+    test "concurrent retries with the same id and key return one transaction", %{
+      scope: scope,
+      cash: cash
+    } do
+      params = %{
+        "type" => "expense",
+        "account_id" => cash.id,
+        "amount" => "1",
+        "id" => @v7,
+        "idempotency_key" => "k"
+      }
+
+      results =
+        1..6
+        |> Enum.map(fn _ -> Task.async(fn -> Ledger.post(scope, params) end) end)
+        |> Enum.map(&Task.await/1)
+
+      assert [{:ok, %{id: @v7}}] = Enum.uniq(results)
+      assert balance(scope, cash.id) == 99_999_900
+    end
+
     test "only UUIDv7 ids are accepted", %{scope: scope, cash: cash} do
       for id <- ["019a6c2e-7d3e-4b21-9f4a-1c2d3e4f5a6b", "42", 42] do
         assert {:error, {:invalid, %{"id" => "must be a UUIDv7"}}} =

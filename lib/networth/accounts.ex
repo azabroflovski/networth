@@ -49,27 +49,63 @@ defmodule Networth.Accounts do
 
   @doc """
   Creates an account. An optional `opening_balance` (natural sign, decimal
-  string) is posted as an opening_balance transaction dated `opened_on`.
+  string) is posted as an opening_balance transaction dated `opened_on`
+  (default today in the workspace timezone).
+
+  With an `idempotency_key`, a retried request returns the account created
+  by the first one; the same key with other params is
+  `{:error, :idempotency_key_reused}`.
   """
   def create(%Scope{} = scope, params) do
     with {:ok, name} <- Params.string(params, "name", required: true),
          {:ok, type} <- Params.one_of(params, "type", @user_types, required: true),
          {:ok, currency} <- currency(params),
          {:ok, opening_balance} <- Params.amount(params, "opening_balance", currency),
-         {:ok, opened_on} <- Params.date(params, "opened_on", fn -> Workspaces.today(scope) end) do
-      DB.transaction(fn ->
-        account =
-          "INSERT INTO accounts (workspace_id, name, type, currency) VALUES ($1, $2, $3, $4) RETURNING *"
-          |> DB.query([scope.workspace_id, name, type, currency])
-          |> handle_write()
+         {:ok, opened_on} <- Params.date(params, "opened_on", fn -> Workspaces.today(scope) end),
+         {:ok, key} <- Params.string(params, "idempotency_key") do
+      hash = key && Params.request_hash(params)
 
-        if opening_balance not in [nil, 0] do
-          {:ok, _} = Ledger.post_opening_balance(scope, account, opening_balance, opened_on)
-        end
+      result =
+        DB.transaction(fn ->
+          account =
+            """
+            INSERT INTO accounts (workspace_id, name, type, currency, idempotency_key, idempotency_hash)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
+            RETURNING *
+            """
+            |> DB.query([scope.workspace_id, name, type, currency, key, hash])
+            |> handle_write() || DB.rollback(:duplicate)
 
-        {:ok, account} = get(scope, account.id)
-        account
-      end)
+          if opening_balance not in [nil, 0] do
+            {:ok, _} = Ledger.post_opening_balance(scope, account, opening_balance, opened_on)
+          end
+
+          {:ok, account} = get(scope, account.id)
+          account
+        end)
+
+      # ON CONFLICT only covers the key's index. A concurrent retry can collide
+      # on the name index first, so a name conflict is a retry if the key exists.
+      case result do
+        {:error, :duplicate} -> replay(scope, key, hash, result)
+        {:error, {:invalid, %{"name" => _}}} when key != nil -> replay(scope, key, hash, result)
+        other -> other
+      end
+    end
+  end
+
+  defp replay(scope, key, hash, failed) do
+    existing =
+      DB.one(
+        "SELECT id, idempotency_hash FROM accounts WHERE workspace_id = $1 AND idempotency_key = $2",
+        [scope.workspace_id, key]
+      )
+
+    cond do
+      is_nil(existing) -> failed
+      existing.idempotency_hash == hash -> get(scope, existing.id)
+      true -> {:error, :idempotency_key_reused}
     end
   end
 

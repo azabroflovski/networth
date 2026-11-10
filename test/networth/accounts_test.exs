@@ -89,4 +89,48 @@ defmodule Networth.AccountsTest do
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
              DB.query("UPDATE accounts SET currency = 'EUR' WHERE id = $1", [account.id])
   end
+
+  describe "idempotency" do
+    setup do
+      %{
+        params: %{
+          "name" => "Card",
+          "type" => "card",
+          "currency" => "UZS",
+          "opening_balance" => "5000000",
+          "idempotency_key" => "create-card"
+        }
+      }
+    end
+
+    test "a retried request returns the account and posts the opening balance once",
+         %{scope: scope, params: params} do
+      {:ok, first} = Accounts.create(scope, params)
+      {:ok, second} = Accounts.create(scope, params)
+
+      assert first == second
+      assert [%{balance: 500_000_000}] = Accounts.list(scope)
+      assert {:ok, [_opening]} = Ledger.list(scope, %{"account_id" => first.id})
+    end
+
+    test "the same key with other params is rejected", %{scope: scope, params: params} do
+      {:ok, _} = Accounts.create(scope, params)
+
+      assert Accounts.create(scope, %{params | "opening_balance" => "1"}) ==
+               {:error, :idempotency_key_reused}
+    end
+
+    test "concurrent requests with the same key create one account", %{
+      scope: scope,
+      params: params
+    } do
+      results =
+        1..6
+        |> Enum.map(fn _ -> Task.async(fn -> Accounts.create(scope, params) end) end)
+        |> Enum.map(&Task.await/1)
+
+      assert [{:ok, _}] = Enum.uniq(results)
+      assert [%{balance: 500_000_000}] = Accounts.list(scope)
+    end
+  end
 end
