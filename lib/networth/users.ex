@@ -132,6 +132,12 @@ defmodule Networth.Users do
     :ok
   end
 
+  @doc "Deletes expired tokens; returns how many were deleted."
+  def delete_expired_tokens do
+    %{num_rows: n} = DB.query!("DELETE FROM user_tokens WHERE expires_at <= now()")
+    n
+  end
+
   def normalize_email(email), do: email |> String.trim() |> String.downcase()
 
   def email(params) do

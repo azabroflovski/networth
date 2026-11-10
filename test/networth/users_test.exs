@@ -88,6 +88,23 @@ defmodule Networth.UsersTest do
       assert Users.get_by_token(token) == nil
     end
 
+    test "expired tokens are deleted by the cleanup" do
+      %{user: user} = register!()
+      expired = Users.create_token(user.id)
+      live = Users.create_token(user.id)
+
+      DB.query!(
+        "UPDATE user_tokens SET expires_at = now() - interval '1 second' WHERE token_hash = $1",
+        [
+          :crypto.hash(:sha256, expired)
+        ]
+      )
+
+      assert Users.delete_expired_tokens() == 1
+      assert %{n: 1} = DB.one("SELECT count(*) AS n FROM user_tokens")
+      assert Users.get_by_token(live)
+    end
+
     test "expired tokens are rejected" do
       %{user: user} = register!()
       token = Users.create_token(user.id)

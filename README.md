@@ -90,6 +90,7 @@ lib/networth/
   scope.ex           %Scope{user_id, workspace_id, role}
   users.ex           регистрация, вход, пароли, токены
   rate_limit.ex      счётчики попыток в ETS
+  token_cleanup.ex   ежечасное удаление просроченных токенов
   workspaces.ex      workspaces, членство, приглашения, authorize/2
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
