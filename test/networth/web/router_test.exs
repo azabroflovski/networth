@@ -79,6 +79,41 @@ defmodule Networth.Web.RouterTest do
     assert {id, rid} == {tx["id"], reversal["id"]}
   end
 
+  test "editing a description and reading its history" do
+    {token, ws} = register("edit@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "C", type: "cash", currency: "USD"},
+        token
+      )
+
+    {201, %{"transaction" => tx}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/transactions",
+        %{type: "expense", account_id: cash["id"], amount: "5", description: "Cofee"},
+        token
+      )
+
+    path = "/api/workspaces/#{ws}/transactions/#{tx["id"]}"
+
+    assert {200, %{"transaction" => %{"description" => "Coffee"}}} =
+             request(:patch, path, %{description: "Coffee"}, token)
+
+    assert {422, %{"errors" => %{"amount" => _}}} = request(:patch, path, %{amount: "6"}, token)
+
+    assert {200,
+            %{
+              "changes" => [
+                %{"field" => "description", "old_value" => "Cofee", "new_value" => "Coffee"}
+              ]
+            }} =
+             request(:get, path <> "/changes", nil, token)
+  end
+
   test "exchange details are rendered with currencies and rate" do
     {token, ws} = register("fx@example.com")
 

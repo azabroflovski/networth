@@ -416,6 +416,73 @@ defmodule Networth.Ledger do
     end
   end
 
+  @ledger_fields ~w(type account_id from_account_id to_account_id amount from_amount to_amount
+                    lines category_id occurred_on)
+
+  @doc """
+  Edits a posted transaction. Only the description can change, and the
+  database records every change in transaction_changes. Amounts, accounts,
+  categories and dates are changed by reversing and posting again.
+  """
+  def update(%Scope{} = scope, id, params) do
+    with {:ok, transaction} <- get(scope, id),
+         :ok <- reject_ledger_fields(params),
+         {:ok, description} <- new_description(params) do
+      if description == transaction.description do
+        {:ok, transaction}
+      else
+        DB.transaction(fn ->
+          DB.query!("SELECT set_config('networth.user_id', $1, true)", [scope.user_id])
+
+          DB.query!(
+            "UPDATE transactions SET description = $3 WHERE id = $1 AND workspace_id = $2",
+            [
+              transaction.id,
+              scope.workspace_id,
+              description
+            ]
+          )
+
+          {:ok, transaction} = get(scope, transaction.id)
+          transaction
+        end)
+      end
+    end
+  end
+
+  defp reject_ledger_fields(params) do
+    case Enum.find(@ledger_fields, &Map.has_key?(params, &1)) do
+      nil ->
+        :ok
+
+      field ->
+        Params.invalid(field, "cannot be changed; reverse the transaction and post a new one")
+    end
+  end
+
+  # An explicit null or blank string clears the description.
+  defp new_description(params) do
+    if Map.has_key?(params, "description"),
+      do: Params.string(params, "description", max: 500),
+      else: Params.invalid("description", "is required")
+  end
+
+  @doc "Edit history of a transaction, oldest first."
+  def changes(%Scope{} = scope, id) do
+    with {:ok, transaction} <- get(scope, id) do
+      {:ok,
+       DB.all(
+         """
+         SELECT c.id, c.field, c.old_value, c.new_value, c.changed_by, u.name AS changed_by_name, c.inserted_at
+         FROM transaction_changes c JOIN users u ON u.id = c.changed_by
+         WHERE c.transaction_id = $1 AND c.workspace_id = $2
+         ORDER BY c.id
+         """,
+         [transaction.id, scope.workspace_id]
+       )}
+    end
+  end
+
   @doc "Replaces the tags of a transaction. Tags are not part of the ledger."
   def set_tags(%Scope{} = scope, id, params) do
     with {:ok, transaction} <- get(scope, id),

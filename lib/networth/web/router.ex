@@ -205,6 +205,19 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  patch "/api/workspaces/:wid/transactions/:id" do
+    in_workspace(conn, wid, fn scope ->
+      Ledger.update(scope, id, conn.body_params)
+      |> render(conn, 200, :transaction, &View.transaction/1)
+    end)
+  end
+
+  get "/api/workspaces/:wid/transactions/:id/changes" do
+    in_workspace(conn, wid, fn scope ->
+      Ledger.changes(scope, id) |> render_list(conn, :changes, &View.transaction_change/1)
+    end)
+  end
+
   post "/api/workspaces/:wid/transactions/:id/reverse" do
     in_workspace(conn, wid, fn scope ->
       Ledger.reverse(scope, id, conn.body_params)

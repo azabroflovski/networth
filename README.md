@@ -133,6 +133,8 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/workspaces/:wid/transactions` | история; `account_id, category_id, tag_id, type, from, to, limit, offset` |
 | `POST /api/workspaces/:wid/transactions` | провести операцию |
 | `GET /api/workspaces/:wid/transactions/:id` | операция с проводками |
+| `PATCH /api/workspaces/:wid/transactions/:id` | изменить описание `{description}`; остальное — только через сторно |
+| `GET /api/workspaces/:wid/transactions/:id/changes` | журнал изменений описания |
 | `POST /api/workspaces/:wid/transactions/:id/reverse` | сторно `{occurred_on?, description?}`; повтор возвращает то же сторно |
 | `PUT /api/workspaces/:wid/transactions/:id/tags` | заменить теги `{tag_ids}` |
 | `GET/POST /api/workspaces/:wid/categories`, `PATCH …/:id` | категории |
