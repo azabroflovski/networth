@@ -97,9 +97,25 @@ defmodule Networth.Workspaces do
 
   defp timezone(params, default) do
     with {:ok, tz} <- Params.string(params, "timezone", default: default) do
-      if DB.one("SELECT 1 AS one FROM pg_timezone_names WHERE name = $1", [tz]),
+      if MapSet.member?(timezones(), tz),
         do: {:ok, tz},
         else: Params.invalid("timezone", "is not a known IANA time zone")
+    end
+  end
+
+  # pg_timezone_names reads the time zone files on every query (~40 ms), and
+  # the list only changes with a PostgreSQL upgrade, so it is cached.
+  defp timezones do
+    case :persistent_term.get({__MODULE__, :timezones}, nil) do
+      nil ->
+        names =
+          "SELECT name FROM pg_timezone_names" |> DB.all() |> MapSet.new(& &1.name)
+
+        :persistent_term.put({__MODULE__, :timezones}, names)
+        names
+
+      names ->
+        names
     end
   end
 
