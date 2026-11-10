@@ -7,7 +7,18 @@ defmodule Networth.Web.Router do
   use Plug.Router
   use Plug.ErrorHandler
 
-  alias Networth.{Accounts, Categories, Currencies, Ledger, Reports, Tags, Users, Workspaces}
+  alias Networth.{
+    Accounts,
+    Budgets,
+    Categories,
+    Currencies,
+    Ledger,
+    Reports,
+    Tags,
+    Users,
+    Workspaces
+  }
+
   alias Networth.Web.JSON, as: View
 
   plug :match
@@ -185,6 +196,27 @@ defmodule Networth.Web.Router do
 
       Reports.income_expense(scope, conn.query_params)
       |> render(conn, 200, :report, &View.income_expense/1)
+    end)
+  end
+
+  get "/api/workspaces/:wid/budgets" do
+    in_workspace(conn, wid, fn scope ->
+      send_json(conn, 200, %{budgets: Enum.map(Budgets.list(scope), &View.budget/1)})
+    end)
+  end
+
+  put "/api/workspaces/:wid/budgets" do
+    in_workspace(conn, wid, fn scope ->
+      Budgets.set(scope, conn.body_params) |> render(conn, 200, :budget, &View.budget/1)
+    end)
+  end
+
+  get "/api/workspaces/:wid/reports/budget" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+
+      Budgets.report(scope, conn.query_params)
+      |> render(conn, 200, :report, &View.budget_report/1)
     end)
   end
 

@@ -90,6 +90,17 @@ defmodule Networth.Params do
     end
   end
 
+  @doc "A supported currency code, case-insensitive."
+  def currency(params, key) do
+    with {:ok, code} <- string(params, key, required: true, max: 3) do
+      code = String.upcase(code)
+
+      if Networth.Currencies.get(code),
+        do: {:ok, code},
+        else: invalid(key, "is not supported")
+    end
+  end
+
   @doc "Parses a decimal string amount in major units of `currency` into minor units."
   def amount(params, key, currency, opts \\ []) do
     exponent = Networth.Currencies.exponent!(currency)

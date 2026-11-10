@@ -232,6 +232,60 @@ defmodule Networth.Web.RouterTest do
              request(:get, "/api/workspaces/#{ws}/reports/income-expense", nil, token)
   end
 
+  test "budgets over HTTP" do
+    {token, ws} = register("budget@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "C", type: "cash", currency: "UZS"},
+        token
+      )
+
+    {200, %{"categories" => categories}} =
+      request(:get, "/api/workspaces/#{ws}/categories", nil, token)
+
+    food = Enum.find(categories, &(&1["name"] == "Food"))["id"]
+
+    assert {200, %{"budget" => %{"month" => "2026-11", "amount" => "500.00"}}} =
+             request(
+               :put,
+               "/api/workspaces/#{ws}/budgets",
+               %{category_id: food, currency: "UZS", amount: "500", month: "2026-11"},
+               token
+             )
+
+    {201, _} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/transactions",
+        %{
+          type: "expense",
+          account_id: cash["id"],
+          amount: "125",
+          category_id: food,
+          occurred_on: "2026-11-02"
+        },
+        token
+      )
+
+    assert {200, %{"report" => %{"month" => "2026-11", "budgets" => [budget]}}} =
+             request(:get, "/api/workspaces/#{ws}/reports/budget?month=2026-11", nil, token)
+
+    assert budget == %{
+             "category_id" => food,
+             "name" => "Food",
+             "currency" => "UZS",
+             "limit" => "500.00",
+             "spent" => "125.00",
+             "remaining" => "375.00",
+             "percent" => 25
+           }
+
+    assert {200, %{"budgets" => [_]}} = request(:get, "/api/workspaces/#{ws}/budgets", nil, token)
+  end
+
   test "authentication is required and tokens can be revoked" do
     {token, ws} = register("auth@example.com")
 

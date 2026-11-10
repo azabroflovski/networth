@@ -12,7 +12,7 @@ defmodule Networth.Accounts do
   account's natural sign: money held for assets, money owed for liabilities.
   """
 
-  alias Networth.{Currencies, DB, Ledger, Params, Scope, Workspaces}
+  alias Networth.{DB, Ledger, Params, Scope, Workspaces}
 
   @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
@@ -60,7 +60,7 @@ defmodule Networth.Accounts do
   def create(%Scope{} = scope, params) do
     with {:ok, name} <- Params.string(params, "name", required: true),
          {:ok, type} <- Params.one_of(params, "type", @user_types, required: true),
-         {:ok, currency} <- currency(params),
+         {:ok, currency} <- Params.currency(params, "currency"),
          {:ok, opening_balance} <- Params.amount(params, "opening_balance", currency),
          {:ok, opened_on} <- Params.date(params, "opened_on", fn -> Workspaces.today(scope) end),
          {:ok, key} <- Params.string(params, "idempotency_key") do
@@ -168,16 +168,6 @@ defmodule Networth.Accounts do
       "SELECT id, name, type, kind, currency FROM accounts WHERE workspace_id = $1 AND type = $2 AND currency = $3 AND system",
       [workspace_id, type, currency]
     )
-  end
-
-  defp currency(params) do
-    with {:ok, code} <- Params.string(params, "currency", required: true, max: 3) do
-      code = String.upcase(code)
-
-      if Currencies.get(code),
-        do: {:ok, code},
-        else: Params.invalid("currency", "is not supported")
-    end
   end
 
   defp handle_write({:ok, result}), do: result |> DB.to_maps() |> List.first()

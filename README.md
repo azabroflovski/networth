@@ -93,6 +93,7 @@ lib/networth/
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
   reports.ex         отчёты (только чтение)
+  budgets.ex         бюджеты: лимиты и отчёт исполнения
   categories.ex      категории
   tags.ex            теги
   web/router.ex      HTTP API
@@ -132,6 +133,9 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/workspaces/:wid/accounts/:id/activity?from=&to=` | движение по счёту: остаток на начало, приход, расход, остаток на конец |
 | `GET /api/workspaces/:wid/reports/income-expense?from=&to=` | доходы и расходы по валютам и категориям, итог |
 | `GET /api/workspaces/:wid/reports/balances?on=` | балансы счетов на конец даты |
+| `GET /api/workspaces/:wid/budgets` | лимиты с историей |
+| `PUT /api/workspaces/:wid/budgets` | лимит `{category_id, currency, amount, month?}` с месяца `YYYY-MM`; `amount: "0"` снимает |
+| `GET /api/workspaces/:wid/reports/budget?month=` | лимит, потрачено, остаток, процент по категориям |
 | `GET /api/workspaces/:wid/reports/net-worth?on=` | капитал по валютам: активы, обязательства, разница (по умолчанию на сегодня) |
 | `GET /api/workspaces/:wid/transactions` | история, новые сверху; `account_id, category_id, tag_id, type, from, to, limit, cursor` → `{transactions, next_cursor}` |
 | `POST /api/workspaces/:wid/transactions` | провести операцию |

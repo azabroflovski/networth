@@ -99,6 +99,33 @@ defmodule Networth.Web.JSON do
     }
   end
 
+  def budget(b) do
+    b
+    |> Map.take([:id, :category_id, :currency, :updated_by, :updated_at])
+    |> Map.merge(%{
+      month: Calendar.strftime(b.starts_on, "%Y-%m"),
+      amount: money(b.amount, b.currency)
+    })
+  end
+
+  def budget_report(report) do
+    %{
+      month: Calendar.strftime(report.month, "%Y-%m"),
+      budgets:
+        Enum.map(report.budgets, fn b ->
+          %{
+            category_id: b.category_id,
+            name: b.name,
+            currency: b.currency,
+            limit: money(b.limit, b.currency),
+            spent: money(b.spent, b.currency),
+            remaining: money(b.remaining, b.currency),
+            percent: b.percent
+          }
+        end)
+    }
+  end
+
   def net_worth(report) do
     %{
       on: report.on,
