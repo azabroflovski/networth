@@ -44,24 +44,29 @@ defmodule Networth.Ledger do
   def post(%Scope{} = scope, params) do
     with {:ok, type} <- Params.one_of(params, "type", @postable_types, required: true),
          {:ok, attrs} <- common_attrs(scope, params) do
-      result =
-        DB.transaction(fn ->
-          with {:ok, posting} <- build(type, scope, params),
-               :ok <- Tags.validate_ids(scope, attrs.tag_ids) do
-            insert(scope, Map.merge(attrs, posting) |> Map.put(:type, type))
-          else
-            {:error, reason} -> DB.rollback(reason)
-          end
-        end)
+      DB.transaction(fn -> post_new(scope, type, attrs, params) end)
+      |> replay_on_conflict(scope, attrs)
+    end
+  end
 
-      # ON CONFLICT only covers the key's index. A concurrent retry with the
-      # same client id can collide on the primary key first, so id_taken is a
-      # retry if the key exists.
-      case result do
-        {:error, :duplicate} -> replay(scope, attrs, result)
-        {:error, :id_taken} when attrs.idempotency_key != nil -> replay(scope, attrs, result)
-        other -> other
-      end
+  # Builds, validates and inserts a new operation; must run in a transaction.
+  defp post_new(scope, type, attrs, params) do
+    with {:ok, posting} <- build(type, scope, params),
+         :ok <- Tags.validate_ids(scope, attrs.tag_ids) do
+      insert(scope, attrs |> Map.merge(posting) |> Map.put(:type, type))
+    else
+      {:error, reason} -> DB.rollback(reason)
+    end
+  end
+
+  # ON CONFLICT only covers the key's index. A concurrent retry with the same
+  # client id can collide on the primary key first, so id_taken is a retry
+  # if the key exists.
+  defp replay_on_conflict(result, scope, attrs) do
+    case result do
+      {:error, :duplicate} -> replay(scope, attrs, result)
+      {:error, :id_taken} when attrs.idempotency_key != nil -> replay(scope, attrs, result)
+      other -> other
     end
   end
 
@@ -333,9 +338,9 @@ defmodule Networth.Ledger do
       DB.query(
         """
         INSERT INTO transactions
-          (id, workspace_id, type, occurred_on, description, reverses_id,
+          (id, workspace_id, type, occurred_on, description, reverses_id, replaces_id,
            idempotency_key, idempotency_hash, created_by)
-        VALUES (coalesce($1, uuidv7()), $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES (coalesce($1, uuidv7()), $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
         RETURNING id
         """,
@@ -346,6 +351,7 @@ defmodule Networth.Ledger do
           attrs.occurred_on,
           attrs[:description],
           attrs[:reverses_id],
+          attrs[:replaces_id],
           attrs[:idempotency_key],
           attrs[:idempotency_hash],
           scope.user_id
@@ -440,18 +446,10 @@ defmodule Networth.Ledger do
          {:ok, occurred_on} <- Params.date(params, "occurred_on", nil),
          {:ok, description} <- Params.string(params, "description", max: 500) do
       DB.transaction(fn ->
-        original =
-          DB.one(
-            "SELECT id, type, occurred_on FROM transactions WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
-            [id, scope.workspace_id]
-          )
-
-        existing = original && DB.one("SELECT id FROM transactions WHERE reverses_id = $1", [id])
+        original = lock_transaction(scope, id) || DB.rollback(:not_found)
+        existing = reversal_of(original.id)
 
         cond do
-          is_nil(original) ->
-            DB.rollback(:not_found)
-
           original.type == "reversal" ->
             DB.rollback({:invalid, %{"id" => "a reversal cannot be reversed"}})
 
@@ -460,21 +458,159 @@ defmodule Networth.Ledger do
             reversal
 
           true ->
-            entries =
-              DB.all(
-                """
-                SELECT account_id, currency, account_kind, -amount AS amount, category_id
-                FROM ledger_entries WHERE transaction_id = $1 ORDER BY id
-                """,
-                [id]
-              )
+            insert_reversal(scope, original, occurred_on || original.occurred_on, description)
+        end
+      end)
+    else
+      {:error, _} = error -> error
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp lock_transaction(scope, id) do
+    DB.one(
+      "SELECT id, type, occurred_on FROM transactions WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+      [id, scope.workspace_id]
+    )
+  end
+
+  defp reversal_of(id), do: DB.one("SELECT id FROM transactions WHERE reverses_id = $1", [id])
+
+  defp insert_reversal(scope, original, occurred_on, description) do
+    entries =
+      DB.all(
+        """
+        SELECT account_id, currency, account_kind, -amount AS amount, category_id
+        FROM ledger_entries WHERE transaction_id = $1 ORDER BY id
+        """,
+        [original.id]
+      )
+
+    insert(scope, %{
+      type: "reversal",
+      occurred_on: occurred_on,
+      description: description,
+      reverses_id: original.id,
+      entries: entries
+    })
+  end
+
+  @doc """
+  Corrects a posted operation: reverses it and posts the new version in one
+  database transaction. The new transaction's `replaces_id` points to the
+  original. Params are those of `post/2`; occurred_on, description and
+  tag_ids default to the original's.
+
+  The original must be an expense, income, transfer or exchange that is not
+  reversed yet (`{:error, :already_reversed}` otherwise). With an
+  idempotency_key a retried correction returns the posted one.
+  """
+  def correct(%Scope{} = scope, id, params) do
+    with {:ok, original} <- get(scope, id),
+         {:ok, type} <- Params.one_of(params, "type", @postable_types, required: true),
+         merged =
+           Map.merge(
+             %{
+               "occurred_on" => Date.to_iso8601(original.occurred_on),
+               "description" => original.description,
+               "tag_ids" => original.tag_ids
+             },
+             params
+           ),
+         {:ok, attrs} <- common_attrs(scope, merged) do
+      # The key fingerprints what the client sent, not the defaults filled in.
+      attrs = %{attrs | idempotency_hash: attrs.idempotency_key && Params.request_hash(params)}
+
+      DB.transaction(fn ->
+        original = lock_transaction(scope, original.id)
+
+        cond do
+          attrs.idempotency_key && key_used?(scope, attrs.idempotency_key) ->
+            DB.rollback(:duplicate)
+
+          original.type not in @postable_types ->
+            DB.rollback(
+              {:invalid,
+               %{"id" => "only expense, income, transfer and exchange can be corrected"}}
+            )
+
+          reversal_of(original.id) ->
+            DB.rollback(:already_reversed)
+
+          true ->
+            insert_reversal(scope, original, original.occurred_on, nil)
+            post_new(scope, type, Map.put(attrs, :replaces_id, original.id), merged)
+        end
+      end)
+      |> replay_on_conflict(scope, attrs)
+    end
+  end
+
+  defp key_used?(scope, key) do
+    DB.one("SELECT 1 AS one FROM transactions WHERE workspace_id = $1 AND idempotency_key = $2", [
+      scope.workspace_id,
+      key
+    ]) != nil
+  end
+
+  @doc """
+  Reconciles an account with its real balance: posts an `adjustment` for the
+  difference between `balance` (natural sign, decimal string) and the
+  recorded balance at the end of `occurred_on` (default today in the
+  workspace timezone). The difference goes to an equity account, so it does
+  not appear as income or expense. Returns `{:ok, nil}` when the balances
+  already match, so repeating a request posts nothing.
+  """
+  def adjust_balance(%Scope{} = scope, account_id, params) do
+    with id when is_binary(id) <- Params.cast_id(account_id),
+         {:ok, occurred_on} <-
+           Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
+         {:ok, description} <- Params.string(params, "description", max: 500) do
+      DB.transaction(fn ->
+        # FOR UPDATE keeps postings to this account out until we commit, so
+        # the difference is computed against a stable balance.
+        account =
+          DB.one(
+            """
+            SELECT id, name, type, kind, currency, archived_at FROM accounts
+            WHERE id = $1 AND workspace_id = $2 AND NOT system FOR UPDATE
+            """,
+            [id, scope.workspace_id]
+          ) || DB.rollback(:not_found)
+
+        if account.archived_at, do: DB.rollback({:invalid, %{"account_id" => "is archived"}})
+
+        actual =
+          case Params.amount(params, "balance", account.currency, required: true) do
+            {:ok, actual} -> actual
+            {:error, reason} -> DB.rollback(reason)
+          end
+
+        sign = if account.kind == "asset", do: 1, else: -1
+
+        %{sum: sum} =
+          DB.one(
+            """
+            SELECT coalesce(sum(e.amount), 0)::bigint AS sum
+            FROM ledger_entries e JOIN transactions t ON t.id = e.transaction_id
+            WHERE e.account_id = $1 AND t.occurred_on <= $2
+            """,
+            [account.id, occurred_on]
+          )
+
+        case actual - sign * sum do
+          0 ->
+            nil
+
+          difference ->
+            other = Accounts.system_account(scope.workspace_id, "adjustment", account.currency)
+            debit = sign * difference
 
             insert(scope, %{
-              type: "reversal",
-              occurred_on: occurred_on || original.occurred_on,
+              type: "adjustment",
+              occurred_on: occurred_on,
               description: description,
-              reverses_id: id,
-              entries: entries
+              entries: [entry(account, debit), entry(other, -debit)]
             })
         end
       end)
@@ -566,7 +702,7 @@ defmodule Networth.Ledger do
   end
 
   @select """
-  SELECT t.id, t.workspace_id, t.type, t.occurred_on, t.description, t.reverses_id,
+  SELECT t.id, t.workspace_id, t.type, t.occurred_on, t.description, t.reverses_id, t.replaces_id,
     (SELECT r.id FROM transactions r WHERE r.reverses_id = t.id) AS reversed_by_id,
     t.idempotency_key, t.created_by, t.inserted_at
   FROM transactions t
@@ -583,23 +719,34 @@ defmodule Networth.Ledger do
   end
 
   @doc """
-  Lists transactions, newest first (by occurred_on, then id). Filters:
+  Lists transactions, newest first (by occurred_on, then id). Reversed
+  transactions and their reversals (deleted or corrected operations) are
+  hidden unless `include_reversed` is true. Filters:
   account_id, category_id (any line in it or its subcategories), tag_id,
   type, from, to. Paginated by `limit` and `cursor`: pass the returned
   `next_cursor` to get the next page; it is nil on the last page.
   """
+  @not_reversed "t.type <> 'reversal' AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.reverses_id = t.id)"
+
   def list(%Scope{} = scope, params \\ %{}) do
     with {:ok, account_id} <- Params.id(params, "account_id"),
          {:ok, category_id} <- Params.id(params, "category_id"),
          {:ok, tag_id} <- Params.id(params, "tag_id"),
          {:ok, type} <-
-           Params.one_of(params, "type", @postable_types ++ ~w(opening_balance reversal)),
+           Params.one_of(
+             params,
+             "type",
+             @postable_types ++ ~w(opening_balance adjustment reversal)
+           ),
          {:ok, from} <- Params.date(params, "from", nil),
          {:ok, to} <- Params.date(params, "to", nil),
          {:ok, limit} <- Params.integer(params, "limit", 50, 1, 200),
          {:ok, cursor} <- decode_cursor(params["cursor"]) do
+      include_reversed = params["include_reversed"] in [true, "true"]
+
       {conditions, args} =
-        {["t.workspace_id = $1"], [scope.workspace_id]}
+        {["t.workspace_id = $1" | if(include_reversed, do: [], else: [@not_reversed])],
+         [scope.workspace_id]}
         |> where(
           account_id,
           &"EXISTS (SELECT 1 FROM ledger_entries e WHERE e.transaction_id = t.id AND e.account_id = #{&1})"

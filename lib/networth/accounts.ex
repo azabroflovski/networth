@@ -155,7 +155,7 @@ defmodule Networth.Accounts do
 
   @doc "Returns the system account of `type` for the currency, creating it if needed."
   def system_account(workspace_id, type, currency)
-      when type in ~w(income expense opening_balance exchange) do
+      when type in ~w(income expense opening_balance exchange adjustment) do
     DB.query!(
       """
       INSERT INTO accounts (workspace_id, name, type, currency) VALUES ($1, $2, $3, $4)

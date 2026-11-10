@@ -37,6 +37,7 @@ defmodule Networth.Web.JSON do
       :tag_ids,
       :reverses_id,
       :reversed_by_id,
+      :replaces_id,
       :idempotency_key,
       :created_by,
       :inserted_at

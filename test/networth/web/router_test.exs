@@ -73,10 +73,55 @@ defmodule Networth.Web.RouterTest do
              request(:post, "/api/workspaces/#{ws}/transactions/#{tx["id"]}/reverse", %{}, token)
 
     {200, %{"transactions" => list, "next_cursor" => nil}} =
-      request(:get, "/api/workspaces/#{ws}/transactions?type=expense", nil, token)
+      request(
+        :get,
+        "/api/workspaces/#{ws}/transactions?type=expense&include_reversed=true",
+        nil,
+        token
+      )
 
     assert [%{"id" => id, "reversed_by_id" => rid}] = list
     assert {id, rid} == {tx["id"], reversal["id"]}
+  end
+
+  test "correct, delete and adjust over HTTP" do
+    {token, ws} = register("ux@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "C", type: "cash", currency: "USD", opening_balance: "100"},
+        token
+      )
+
+    txs = "/api/workspaces/#{ws}/transactions"
+    expense = %{type: "expense", account_id: cash["id"], amount: "30"}
+    {201, %{"transaction" => tx}} = request(:post, txs, expense, token)
+
+    assert {201, %{"transaction" => %{"replaces_id" => replaces, "id" => fixed}}} =
+             request(:post, "#{txs}/#{tx["id"]}/correct", %{expense | amount: "20"}, token)
+
+    assert replaces == tx["id"]
+
+    assert {409, %{"error" => "already_reversed"}} =
+             request(:post, "#{txs}/#{tx["id"]}/correct", expense, token)
+
+    assert {204, nil} = request(:delete, "#{txs}/#{fixed}", nil, token)
+    assert {204, nil} = request(:delete, "#{txs}/#{fixed}", nil, token)
+
+    assert {200, %{"transactions" => [%{"type" => "opening_balance"}]}} =
+             request(:get, txs, nil, token)
+
+    adjust = "/api/workspaces/#{ws}/accounts/#{cash["id"]}/adjust"
+
+    assert {201, %{"transaction" => %{"type" => "adjustment"}}} =
+             request(:post, adjust, %{balance: "95.50"}, token)
+
+    assert {200, %{"transaction" => nil}} = request(:post, adjust, %{balance: "95.50"}, token)
+
+    assert {200, %{"account" => %{"balance" => "95.50"}}} =
+             request(:get, "/api/workspaces/#{ws}/accounts/#{cash["id"]}", nil, token)
   end
 
   test "editing a description and reading its history" do

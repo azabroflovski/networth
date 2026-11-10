@@ -124,7 +124,7 @@ lib/networth/
 | `{:error, {:invalid, %{"field" => "message"}}}` | 422 |
 | `{:error, :not_found}` (в т. ч. чужой workspace) | 404 |
 | `{:error, :forbidden}` | 403 |
-| `{:error, :idempotency_key_reused \| :id_taken \| :last_owner}` | 409 |
+| `{:error, :idempotency_key_reused \| :id_taken \| :last_owner \| :already_reversed}` | 409 |
 | нет или неверный токен | 401 |
 
 ## HTTP API
@@ -147,6 +147,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/invitations`, `POST /api/invitations/:id/accept` | мои приглашения / принять |
 | `GET/POST /api/workspaces/:wid/accounts` | счета с балансами / `{name, type, currency, opening_balance?, opened_on?, idempotency_key?}`; `type`: cash, bank, card, deposit, savings, receivable, credit_card, loan, payable |
 | `GET/PATCH /api/workspaces/:wid/accounts/:id` | счёт / `{name?, archived?}` |
+| `POST /api/workspaces/:wid/accounts/:id/adjust` | сверка `{balance, occurred_on?, description?}`: проводит разницу; `transaction: null`, если совпадает |
 | `GET /api/workspaces/:wid/accounts/:id/activity?from=&to=` | движение по счёту: остаток на начало, приход, расход, остаток на конец |
 | `GET /api/workspaces/:wid/reports/income-expense?from=&to=` | доходы и расходы по валютам и категориям, итог |
 | `GET /api/workspaces/:wid/reports/balances?on=` | балансы счетов на конец даты |
@@ -154,12 +155,14 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `PUT /api/workspaces/:wid/budgets` | лимит `{category_id, currency, amount, month?}` с месяца `YYYY-MM`; `amount: "0"` снимает |
 | `GET /api/workspaces/:wid/reports/budget?month=` | лимит, потрачено, остаток, процент по категориям |
 | `GET /api/workspaces/:wid/reports/net-worth?on=` | капитал по валютам: активы, обязательства, разница (по умолчанию на сегодня) |
-| `GET /api/workspaces/:wid/transactions` | история, новые сверху; `account_id, category_id, tag_id, type, from, to, limit, cursor` → `{transactions, next_cursor}` |
+| `GET /api/workspaces/:wid/transactions` | история, новые сверху, без отменённых пар; `account_id, category_id, tag_id, type, from, to, include_reversed, limit, cursor` → `{transactions, next_cursor}` |
 | `POST /api/workspaces/:wid/transactions` | провести операцию |
 | `GET /api/workspaces/:wid/transactions/:id` | операция с проводками |
 | `PATCH /api/workspaces/:wid/transactions/:id` | изменить описание `{description}`; остальное — только через сторно |
 | `GET /api/workspaces/:wid/transactions/:id/changes` | журнал изменений описания |
 | `POST /api/workspaces/:wid/transactions/:id/reverse` | сторно `{occurred_on?, description?}`; повтор возвращает то же сторно |
+| `POST /api/workspaces/:wid/transactions/:id/correct` | исправить: сторно + новая версия (тело как у проведения), `replaces_id` на исходную |
+| `DELETE /api/workspaces/:wid/transactions/:id` | удалить (сторно); 204 |
 | `PUT /api/workspaces/:wid/transactions/:id/tags` | заменить теги `{tag_ids}` |
 | `GET/POST /api/workspaces/:wid/categories`, `PATCH …/:id` | категории |
 | `GET/POST /api/workspaces/:wid/tags`, `PATCH/DELETE …/:id` | теги |

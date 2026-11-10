@@ -589,8 +589,16 @@ defmodule Networth.LedgerTest do
       post!(scope, %{"type" => "expense", "account_id" => cash.id, "amount" => "50"})
 
       assert balance(scope, cash.id) == 99_995_000
-      assert {:ok, %{transactions: history}} = Ledger.list(scope, %{"account_id" => cash.id})
-      assert Enum.map(history, & &1.type) == ~w(expense reversal expense opening_balance)
+
+      list = fn params ->
+        {:ok, %{transactions: txs}} = Ledger.list(scope, Map.put(params, "account_id", cash.id))
+        Enum.map(txs, & &1.type)
+      end
+
+      assert list.(%{"include_reversed" => "true"}) ==
+               ~w(expense reversal expense opening_balance)
+
+      assert list.(%{}) == ~w(expense opening_balance)
     end
 
     test "a transaction is reversed once; repeating returns the same reversal", %{
@@ -736,6 +744,255 @@ defmodule Networth.LedgerTest do
         assert {:error, %Postgrex.Error{postgres: %{message: message}}} = DB.query(sql, [tx.id])
         assert message =~ "append-only"
       end
+    end
+  end
+
+  describe "correct/3" do
+    setup %{scope: scope, cash: cash} do
+      {:ok, tag} = Tags.create(scope, %{"name" => "Home"})
+
+      tx =
+        post!(scope, %{
+          "type" => "expense",
+          "account_id" => cash.id,
+          "amount" => "500",
+          "category_id" => category_id(scope, "Food"),
+          "occurred_on" => "2026-10-05",
+          "description" => "Groceries",
+          "tag_ids" => [tag.id]
+        })
+
+      %{tx: tx, tag: tag}
+    end
+
+    test "replaces the operation, keeping date, description and tags by default",
+         %{scope: scope, cash: cash, tx: tx, tag: tag} do
+      assert {:ok, fixed} =
+               Ledger.correct(scope, tx.id, %{
+                 "type" => "expense",
+                 "account_id" => cash.id,
+                 "amount" => "50"
+               })
+
+      assert fixed.replaces_id == tx.id
+
+      assert {fixed.occurred_on, fixed.description, fixed.tag_ids} ==
+               {~D[2026-10-05], "Groceries", [tag.id]}
+
+      assert balance(scope, cash.id) == 100_000_000 - 5_000
+
+      {:ok, original} = Ledger.get(scope, tx.id)
+
+      assert {:ok, %{type: "reversal", occurred_on: ~D[2026-10-05]}} =
+               Ledger.get(scope, original.reversed_by_id)
+
+      # The history shows only the current version.
+      {:ok, %{transactions: history}} = Ledger.list(scope, %{"type" => "expense"})
+      assert Enum.map(history, & &1.id) == [fixed.id]
+    end
+
+    test "can change anything, including the type and the account", %{
+      scope: scope,
+      card: card,
+      tx: tx
+    } do
+      assert {:ok, fixed} =
+               Ledger.correct(scope, tx.id, %{
+                 "type" => "income",
+                 "account_id" => card.id,
+                 "amount" => "7",
+                 "occurred_on" => "2026-10-06",
+                 "tag_ids" => []
+               })
+
+      assert {fixed.type, fixed.occurred_on, fixed.tag_ids} == {"income", ~D[2026-10-06], []}
+      assert balance(scope, card.id) == 700
+    end
+
+    test "a correction can itself be corrected", %{scope: scope, cash: cash, tx: tx} do
+      {:ok, first} =
+        Ledger.correct(scope, tx.id, %{
+          "type" => "expense",
+          "account_id" => cash.id,
+          "amount" => "50"
+        })
+
+      {:ok, second} =
+        Ledger.correct(scope, first.id, %{
+          "type" => "expense",
+          "account_id" => cash.id,
+          "amount" => "60"
+        })
+
+      assert second.replaces_id == first.id
+      assert balance(scope, cash.id) == 100_000_000 - 6_000
+    end
+
+    test "an operation is corrected once; invalid input changes nothing", %{
+      scope: scope,
+      cash: cash,
+      tx: tx
+    } do
+      params = %{"type" => "expense", "account_id" => cash.id, "amount" => "50"}
+
+      assert {:error, {:invalid, %{"amount" => _}}} =
+               Ledger.correct(scope, tx.id, %{params | "amount" => "0"})
+
+      assert {:ok, %{reversed_by_id: nil}} = Ledger.get(scope, tx.id)
+
+      {:ok, _} = Ledger.correct(scope, tx.id, params)
+      assert Ledger.correct(scope, tx.id, params) == {:error, :already_reversed}
+      assert balance(scope, cash.id) == 100_000_000 - 5_000
+    end
+
+    test "only regular operations can be corrected", %{scope: scope, cash: cash, tx: tx} do
+      {:ok, reversal} = Ledger.reverse(scope, tx.id)
+
+      {:ok, %{transactions: [opening]}} =
+        Ledger.list(scope, %{"type" => "opening_balance", "account_id" => cash.id})
+
+      params = %{"type" => "expense", "account_id" => cash.id, "amount" => "1"}
+
+      assert {:error, {:invalid, %{"id" => _}}} = Ledger.correct(scope, reversal.id, params)
+      assert {:error, {:invalid, %{"id" => _}}} = Ledger.correct(scope, opening.id, params)
+      assert Ledger.correct(scope, missing_id(), params) == {:error, :not_found}
+    end
+
+    test "retries with an idempotency key return the correction", %{
+      scope: scope,
+      cash: cash,
+      tx: tx
+    } do
+      params = %{
+        "type" => "expense",
+        "account_id" => cash.id,
+        "amount" => "50",
+        "idempotency_key" => "fix-1"
+      }
+
+      results =
+        1..5
+        |> Enum.map(fn _ -> Task.async(fn -> Ledger.correct(scope, tx.id, params) end) end)
+        |> Enum.map(&Task.await/1)
+
+      assert [{:ok, %{replaces_id: replaces_id}}] = Enum.uniq(results)
+      assert replaces_id == tx.id
+      assert balance(scope, cash.id) == 100_000_000 - 5_000
+    end
+
+    test "concurrent corrections without a key: one wins", %{scope: scope, cash: cash, tx: tx} do
+      results =
+        for amount <- ~w(10 20 30 40) do
+          Task.async(fn ->
+            Ledger.correct(scope, tx.id, %{
+              "type" => "expense",
+              "account_id" => cash.id,
+              "amount" => amount
+            })
+          end)
+        end
+        |> Enum.map(&Task.await/1)
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert Enum.count(results, &(&1 == {:error, :already_reversed})) == 3
+      assert ledger_totals(scope) == [%{currency: "USD", total: 0}, %{currency: "UZS", total: 0}]
+    end
+  end
+
+  describe "adjust_balance/3" do
+    test "posts the difference so the balance matches reality", %{scope: scope, cash: cash} do
+      assert {:ok, adjustment} =
+               Ledger.adjust_balance(scope, cash.id, %{"balance" => "999900.50"})
+
+      assert adjustment.type == "adjustment"
+
+      assert [%{account_id: id, amount: -9_950}, %{account_type: "adjustment", amount: 9_950}] =
+               adjustment.entries
+
+      assert id == cash.id
+      assert balance(scope, cash.id) == 99_990_050
+      assert ledger_totals(scope) == [%{currency: "USD", total: 0}, %{currency: "UZS", total: 0}]
+    end
+
+    test "repeating the same adjustment posts nothing", %{scope: scope, cash: cash} do
+      {:ok, _} = Ledger.adjust_balance(scope, cash.id, %{"balance" => "1000100"})
+      assert Ledger.adjust_balance(scope, cash.id, %{"balance" => "1000100"}) == {:ok, nil}
+      assert balance(scope, cash.id) == 100_010_000
+    end
+
+    test "a liability is adjusted to the amount owed", %{scope: scope} do
+      credit =
+        account!(scope, %{
+          "type" => "credit_card",
+          "currency" => "UZS",
+          "opening_balance" => "300"
+        })
+
+      {:ok, _} = Ledger.adjust_balance(scope, credit.id, %{"balance" => "320"})
+      assert balance(scope, credit.id) == 32_000
+    end
+
+    test "adjusts as of a past date without touching later operations", %{
+      scope: scope,
+      card: card
+    } do
+      post!(scope, %{
+        "type" => "income",
+        "account_id" => card.id,
+        "amount" => "100",
+        "occurred_on" => "2026-10-01"
+      })
+
+      post!(scope, %{
+        "type" => "income",
+        "account_id" => card.id,
+        "amount" => "5",
+        "occurred_on" => "2026-10-20"
+      })
+
+      {:ok, adjustment} =
+        Ledger.adjust_balance(scope, card.id, %{"balance" => "90", "occurred_on" => "2026-10-10"})
+
+      assert adjustment.occurred_on == ~D[2026-10-10]
+      assert balance(scope, card.id) == 9_500
+    end
+
+    test "adjustments stay out of income and expense reports", %{scope: scope, cash: cash} do
+      {:ok, _} =
+        Ledger.adjust_balance(scope, cash.id, %{"balance" => "1", "occurred_on" => "2026-10-10"})
+
+      assert {:ok, %{currencies: []}} =
+               Networth.Reports.income_expense(scope, %{
+                 "from" => "2026-10-01",
+                 "to" => "2026-10-31"
+               })
+    end
+
+    test "concurrent adjustments to the same balance post once", %{scope: scope, cash: cash} do
+      1..5
+      |> Enum.map(fn _ ->
+        Task.async(fn -> Ledger.adjust_balance(scope, cash.id, %{"balance" => "123"}) end)
+      end)
+      |> Enum.each(&Task.await/1)
+
+      assert balance(scope, cash.id) == 12_300
+      assert {:ok, %{transactions: [_]}} = Ledger.list(scope, %{"type" => "adjustment"})
+    end
+
+    test "validates input", %{scope: scope, cash: cash, usd: usd} do
+      %{scope: other} = register!()
+
+      assert {:error, {:invalid, %{"balance" => _}}} = Ledger.adjust_balance(scope, cash.id, %{})
+
+      assert {:error, {:invalid, %{"balance" => _}}} =
+               Ledger.adjust_balance(scope, usd.id, %{"balance" => "1.001"})
+
+      assert Ledger.adjust_balance(other, cash.id, %{"balance" => "1"}) == {:error, :not_found}
+
+      {:ok, _} = Accounts.update(scope, cash.id, %{"archived" => true})
+
+      assert {:error, {:invalid, %{"account_id" => _}}} =
+               Ledger.adjust_balance(scope, cash.id, %{"balance" => "1"})
     end
   end
 

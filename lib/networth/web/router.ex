@@ -191,6 +191,15 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  post "/api/workspaces/:wid/accounts/:id/adjust" do
+    in_workspace(conn, wid, fn scope ->
+      case Ledger.adjust_balance(scope, id, conn.body_params) do
+        {:ok, nil} -> send_json(conn, 200, %{transaction: nil})
+        result -> render(result, conn, 201, :transaction, &View.transaction/1)
+      end
+    end)
+  end
+
   get "/api/workspaces/:wid/accounts/:id/activity" do
     in_workspace(conn, wid, fn scope ->
       conn = fetch_query_params(conn)
@@ -287,6 +296,22 @@ defmodule Networth.Web.Router do
   get "/api/workspaces/:wid/transactions/:id/changes" do
     in_workspace(conn, wid, fn scope ->
       Ledger.changes(scope, id) |> render_list(conn, :changes, &View.transaction_change/1)
+    end)
+  end
+
+  post "/api/workspaces/:wid/transactions/:id/correct" do
+    in_workspace(conn, wid, fn scope ->
+      Ledger.correct(scope, id, conn.body_params)
+      |> render(conn, 201, :transaction, &View.transaction/1)
+    end)
+  end
+
+  delete "/api/workspaces/:wid/transactions/:id" do
+    in_workspace(conn, wid, fn scope ->
+      case Ledger.reverse(scope, id) do
+        {:ok, _reversal} -> send_resp(conn, 204, "")
+        error -> render_error(error, conn)
+      end
     end)
   end
 
@@ -397,6 +422,9 @@ defmodule Networth.Web.Router do
 
   defp render_error({:error, :not_found}, conn), do: send_json(conn, 404, %{error: "not_found"})
   defp render_error({:error, :forbidden}, conn), do: send_json(conn, 403, %{error: "forbidden"})
+
+  defp render_error({:error, :already_reversed}, conn),
+    do: send_json(conn, 409, %{error: "already_reversed"})
 
   defp render_error({:error, :id_taken}, conn), do: send_json(conn, 409, %{error: "id_taken"})
 
