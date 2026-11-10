@@ -154,7 +154,8 @@ defmodule Networth.Web.RouterTest do
              "to_account_id" => uzs["id"],
              "to_amount" => "1270000.00",
              "to_currency" => "UZS",
-             "rate" => "12700"
+             "rate" => "12700",
+             "fee_amount" => "0.00"
            }
   end
 

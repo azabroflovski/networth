@@ -143,6 +143,64 @@ defmodule Networth.LedgerTest do
       assert ledger_totals(scope) == [%{currency: "USD", total: 0}, %{currency: "UZS", total: 0}]
     end
 
+    test "an exchange fee is taken from the source account as an expense line",
+         %{scope: scope, usd: usd, card: card} do
+      {:ok, fees} = Categories.create(scope, %{"name" => "Bank fees", "kind" => "expense"})
+
+      tx =
+        post!(scope, %{
+          "type" => "exchange",
+          "from_account_id" => usd.id,
+          "from_amount" => "100",
+          "to_account_id" => card.id,
+          "to_amount" => "1270000",
+          "fee" => "1.50",
+          "fee_category_id" => fees.id
+        })
+
+      assert balance(scope, usd.id) == 50_000 - 10_000 - 150
+      assert balance(scope, card.id) == 127_000_000
+      assert %{fee_amount: 150, rate: rate} = tx.exchange
+      assert Decimal.equal?(rate, 12_700)
+
+      assert Enum.any?(
+               tx.entries,
+               &(&1.account_type == "expense" and &1.amount == 150 and &1.category_id == fees.id)
+             )
+
+      assert ledger_totals(scope) == [%{currency: "USD", total: 0}, %{currency: "UZS", total: 0}]
+
+      {:ok, _} = Ledger.reverse(scope, tx.id)
+      assert balance(scope, usd.id) == 50_000
+    end
+
+    test "validates the exchange fee", %{scope: scope, usd: usd, card: card} do
+      base = %{
+        "type" => "exchange",
+        "from_account_id" => usd.id,
+        "from_amount" => "100",
+        "to_account_id" => card.id,
+        "to_amount" => "1270000"
+      }
+
+      for {params, field} <- [
+            {%{"fee" => "-1"}, "fee"},
+            {%{"fee" => "0.001"}, "fee"},
+            {%{"fee" => 1}, "fee"},
+            {%{"fee_category_id" => category_id(scope, "Food")}, "fee_category_id"},
+            {%{"fee" => "1", "fee_category_id" => category_id(scope, "Salary")},
+             "fee_category_id"},
+            {%{"fee" => "1", "fee_category_id" => missing_id()}, "fee_category_id"}
+          ] do
+        assert {:error, {:invalid, errors}} = Ledger.post(scope, Map.merge(base, params))
+
+        assert Map.has_key?(errors, field),
+               "expected #{field} for #{inspect(params)}, got #{inspect(errors)}"
+      end
+
+      assert %{exchange: %{fee_amount: 0}} = post!(scope, Map.put(base, "fee", "0"))
+    end
+
     test "an exchange between same-currency accounts is rejected", %{
       scope: scope,
       cash: cash,

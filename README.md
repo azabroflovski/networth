@@ -150,5 +150,5 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 {"type": "expense",  "account_id": "…", "lines": [{"amount": "200000", "category_id": "…"}, {"amount": "100000", "category_id": "…"}]}
 {"type": "income",   "account_id": "…", "amount": "15000000", "category_id": "…"}
 {"type": "transfer", "from_account_id": "…", "to_account_id": "…", "amount": "1000000"}
-{"type": "exchange", "from_account_id": "…", "from_amount": "100", "to_account_id": "…", "to_amount": "1270000"}
+{"type": "exchange", "from_account_id": "…", "from_amount": "100", "to_account_id": "…", "to_amount": "1270000", "fee": "1.50", "fee_category_id": "…"}
 ```

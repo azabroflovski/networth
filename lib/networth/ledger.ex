@@ -29,7 +29,9 @@ defmodule Networth.Ledger do
     * expense / income: account_id and either amount + category_id (optional)
       or lines: [%{"amount" => ..., "category_id" => ...}, ...] for a split
     * transfer: from_account_id, to_account_id, amount (same currency)
-    * exchange: from_account_id, from_amount, to_account_id, to_amount
+    * exchange: from_account_id, from_amount, to_account_id, to_amount,
+      optional fee (source currency, taken on top of from_amount) and
+      fee_category_id
 
   Common: occurred_on (ISO date, default today in the workspace timezone),
   description, tag_ids, idempotency_key, and id (a client-generated UUIDv7;
@@ -148,7 +150,8 @@ defmodule Networth.Ledger do
          {:ok, from_amount} <-
            Params.amount(params, "from_amount", from.currency, required: true, positive: true),
          {:ok, to_amount} <-
-           Params.amount(params, "to_amount", to.currency, required: true, positive: true) do
+           Params.amount(params, "to_amount", to.currency, required: true, positive: true),
+         {:ok, fee} <- exchange_fee(scope, params, from.currency) do
       from_exchange = Accounts.system_account(scope.workspace_id, "exchange", from.currency)
       to_exchange = Accounts.system_account(scope.workspace_id, "exchange", to.currency)
 
@@ -160,22 +163,58 @@ defmodule Networth.Ledger do
           Networth.Currencies.exponent!(to.currency)
         )
 
+      fee_entries =
+        if fee do
+          expense = Accounts.system_account(scope.workspace_id, "expense", from.currency)
+          [entry(expense, fee.amount, fee.category_id), entry(from, -fee.amount)]
+        else
+          []
+        end
+
       {:ok,
        %{
-         entries: [
-           entry(from_exchange, from_amount),
-           entry(from, -from_amount),
-           entry(to, to_amount),
-           entry(to_exchange, -to_amount)
-         ],
+         entries:
+           [
+             entry(from_exchange, from_amount),
+             entry(from, -from_amount),
+             entry(to, to_amount),
+             entry(to_exchange, -to_amount)
+           ] ++ fee_entries,
          exchange: %{
            from: from,
            from_amount: from_amount,
            to: to,
            to_amount: to_amount,
-           rate: rate
+           rate: rate,
+           fee_amount: if(fee, do: fee.amount, else: 0)
          }
        }}
+    end
+  end
+
+  # The fee is taken from the source account in its currency, on top of
+  # from_amount, and booked as an expense line (optionally categorized).
+  defp exchange_fee(scope, params, currency) do
+    with {:ok, amount} <- Params.amount(params, "fee", currency) do
+      cond do
+        amount in [nil, 0] and Map.get(params, "fee_category_id") != nil ->
+          Params.invalid("fee_category_id", "requires a fee")
+
+        amount in [nil, 0] ->
+          {:ok, nil}
+
+        amount < 0 ->
+          Params.invalid("fee", "must not be negative")
+
+        true ->
+          case category(scope, %{"category_id" => params["fee_category_id"]}, "expense") do
+            {:ok, category_id} ->
+              {:ok, %{amount: amount, category_id: category_id}}
+
+            {:error, {:invalid, %{"category_id" => message}}} ->
+              Params.invalid("fee_category_id", message)
+          end
+      end
     end
   end
 
@@ -354,8 +393,8 @@ defmodule Networth.Ledger do
         """
         INSERT INTO exchanges
           (transaction_id, workspace_id, from_account_id, from_amount, from_currency,
-           to_account_id, to_amount, to_currency, rate)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           to_account_id, to_amount, to_currency, rate, fee_amount)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """,
         [
           id,
@@ -366,7 +405,8 @@ defmodule Networth.Ledger do
           exchange.to.id,
           exchange.to_amount,
           exchange.to.currency,
-          exchange.rate
+          exchange.rate,
+          exchange.fee_amount
         ]
       )
     end

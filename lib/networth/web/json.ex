@@ -63,7 +63,8 @@ defmodule Networth.Web.JSON do
       to_account_id: x.to_account_id,
       to_amount: money(x.to_amount, x.to_currency),
       to_currency: x.to_currency,
-      rate: Decimal.to_string(x.rate, :normal)
+      rate: Decimal.to_string(x.rate, :normal),
+      fee_amount: money(x.fee_amount, x.from_currency)
     }
   end
 
