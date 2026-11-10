@@ -543,8 +543,10 @@ defmodule Networth.Ledger do
   end
 
   @doc """
-  Lists transactions, newest first. Filters: account_id, category_id
-  (any line in it or its subcategories), tag_id, type, from, to, limit, offset.
+  Lists transactions, newest first (by occurred_on, then id). Filters:
+  account_id, category_id (any line in it or its subcategories), tag_id,
+  type, from, to. Paginated by `limit` and `cursor`: pass the returned
+  `next_cursor` to get the next page; it is nil on the last page.
   """
   def list(%Scope{} = scope, params \\ %{}) do
     with {:ok, account_id} <- Params.id(params, "account_id"),
@@ -555,7 +557,7 @@ defmodule Networth.Ledger do
          {:ok, from} <- Params.date(params, "from", nil),
          {:ok, to} <- Params.date(params, "to", nil),
          {:ok, limit} <- Params.integer(params, "limit", 50, 1, 200),
-         {:ok, offset} <- Params.integer(params, "offset", 0, 0, 1_000_000) do
+         {:ok, cursor} <- decode_cursor(params["cursor"]) do
       {conditions, args} =
         {["t.workspace_id = $1"], [scope.workspace_id]}
         |> where(
@@ -576,19 +578,44 @@ defmodule Networth.Ledger do
         |> where(type, &"t.type = #{&1}")
         |> where(from, &"t.occurred_on >= #{&1}")
         |> where(to, &"t.occurred_on <= #{&1}")
-
-      n = length(args)
+        |> where(cursor, fn [date, id] -> "(t.occurred_on, t.id) < (#{date}, #{id})" end)
 
       sql =
         @select <>
           " WHERE #{Enum.join(conditions, " AND ")}" <>
-          " ORDER BY t.occurred_on DESC, t.id DESC LIMIT $#{n + 1} OFFSET $#{n + 2}"
+          " ORDER BY t.occurred_on DESC, t.id DESC LIMIT $#{length(args) + 1}"
 
-      {:ok, sql |> DB.all(args ++ [limit, offset]) |> preload()}
+      # One extra row tells whether there is a next page.
+      {page, rest} = sql |> DB.all(args ++ [limit + 1]) |> Enum.split(limit)
+      next_cursor = if rest != [], do: encode_cursor(List.last(page))
+
+      {:ok, %{transactions: preload(page), next_cursor: next_cursor}}
+    end
+  end
+
+  defp encode_cursor(t), do: Base.url_encode64("#{t.occurred_on}/#{t.id}", padding: false)
+
+  defp decode_cursor(nil), do: {:ok, nil}
+
+  defp decode_cursor(cursor) do
+    with true <- is_binary(cursor),
+         {:ok, raw} <- Base.url_decode64(cursor, padding: false),
+         [date, id] <- String.split(raw, "/"),
+         {:ok, date} <- Date.from_iso8601(date),
+         id when is_binary(id) <- Params.cast_id(id) do
+      {:ok, {date, id}}
+    else
+      _ -> Params.invalid("cursor", "is invalid")
     end
   end
 
   defp where(acc, nil, _condition), do: acc
+
+  defp where({conditions, args}, values, condition) when is_tuple(values) do
+    values = Tuple.to_list(values)
+    placeholders = Enum.map(1..length(values), &"$#{length(args) + &1}")
+    {conditions ++ [condition.(placeholders)], args ++ values}
+  end
 
   defp where({conditions, args}, value, condition) do
     {conditions ++ [condition.("$#{length(args) + 1}")], args ++ [value]}

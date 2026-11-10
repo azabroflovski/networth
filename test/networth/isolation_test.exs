@@ -31,14 +31,16 @@ defmodule Networth.IsolationTest do
     assert Ledger.get(ctx.alice.scope, ctx.bob_tx.id) == {:error, :not_found}
     assert Tags.get(ctx.alice.scope, ctx.bob_tag.id) == {:error, :not_found}
     assert Enum.map(Accounts.list(ctx.alice.scope), & &1.id) == [ctx.alice_cash.id]
-    assert {:ok, [_opening]} = Ledger.list(ctx.alice.scope)
-    assert {:ok, []} = Ledger.list(ctx.alice.scope, %{"account_id" => ctx.bob_cash.id})
+    assert {:ok, %{transactions: [_opening]}} = Ledger.list(ctx.alice.scope)
+
+    assert {:ok, %{transactions: []}} =
+             Ledger.list(ctx.alice.scope, %{"account_id" => ctx.bob_cash.id})
   end
 
   test "personal and family workspaces of the same user are independent", ctx do
     assert Accounts.list(ctx.family_scope) == []
     assert Accounts.get(ctx.family_scope, ctx.alice_cash.id) == {:error, :not_found}
-    assert {:ok, []} = Ledger.list(ctx.family_scope)
+    assert {:ok, %{transactions: []}} = Ledger.list(ctx.family_scope)
 
     family_food = category_id(ctx.family_scope, "Food")
     personal_food = category_id(ctx.alice.scope, "Food")
@@ -96,7 +98,7 @@ defmodule Networth.IsolationTest do
   test "the database rejects cross-workspace references", ctx do
     s = ctx.alice.scope
 
-    {:ok, own_tx} = Ledger.list(s)
+    {:ok, %{transactions: own_tx}} = Ledger.list(s)
     own_tx = hd(own_tx)
 
     assert {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}}} =

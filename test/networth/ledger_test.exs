@@ -190,7 +190,7 @@ defmodule Networth.LedgerTest do
         assert Map.has_key?(errors, field), "expected error on #{field} for #{inspect(override)}"
       end
 
-      assert {:ok, [_]} = Ledger.list(scope, %{"account_id" => cash.id})
+      assert {:ok, %{transactions: [_]}} = Ledger.list(scope, %{"account_id" => cash.id})
     end
 
     test "every posting keeps the ledger balanced per currency", %{
@@ -250,7 +250,7 @@ defmodule Networth.LedgerTest do
       assert balance(scope, card.id) == -30_000_000
 
       ids = fn category ->
-        {:ok, txs} = Ledger.list(scope, %{"category_id" => category})
+        {:ok, %{transactions: txs}} = Ledger.list(scope, %{"category_id" => category})
         Enum.map(txs, & &1.id)
       end
 
@@ -531,7 +531,7 @@ defmodule Networth.LedgerTest do
       post!(scope, %{"type" => "expense", "account_id" => cash.id, "amount" => "50"})
 
       assert balance(scope, cash.id) == 99_995_000
-      assert {:ok, history} = Ledger.list(scope, %{"account_id" => cash.id})
+      assert {:ok, %{transactions: history}} = Ledger.list(scope, %{"account_id" => cash.id})
       assert Enum.map(history, & &1.type) == ~w(expense reversal expense opening_balance)
     end
 
@@ -769,7 +769,7 @@ defmodule Networth.LedgerTest do
         end)
       end
 
-      assert {:ok, []} = Ledger.list(scope, %{"type" => "income"})
+      assert {:ok, %{transactions: []}} = Ledger.list(scope, %{"type" => "income"})
     end
 
     test "a transaction without entries is rejected at commit", %{scope: scope} do
@@ -830,7 +830,7 @@ defmodule Networth.LedgerTest do
         })
 
       ids = fn filters ->
-        {:ok, txs} = Ledger.list(scope, filters)
+        {:ok, %{transactions: txs}} = Ledger.list(scope, filters)
         Enum.map(txs, & &1.id)
       end
 
@@ -841,6 +841,96 @@ defmodule Networth.LedgerTest do
       assert ids.(%{"type" => "expense", "from" => "2026-10-02", "to" => "2026-10-09"}) == [b.id]
       assert length(ids.(%{"limit" => "2"})) == 2
       assert {:error, {:invalid, %{"limit" => _}}} = Ledger.list(scope, %{"limit" => "1000"})
+    end
+
+    test "cursor pagination walks every transaction exactly once", %{scope: scope, cash: cash} do
+      # Several transactions share a date, so the order relies on the id tie-break.
+      for {date, i} <-
+            Enum.with_index(~w(2026-10-01 2026-10-01 2026-10-01 2026-10-02 2026-10-03 2026-10-03)) do
+        post!(scope, %{
+          "type" => "expense",
+          "account_id" => cash.id,
+          "amount" => "#{i + 1}",
+          "occurred_on" => date
+        })
+      end
+
+      {:ok, %{transactions: all, next_cursor: nil}} = Ledger.list(scope, %{"limit" => "200"})
+
+      pages =
+        Stream.unfold(%{"limit" => "2"}, fn
+          nil ->
+            nil
+
+          params ->
+            {:ok, page} = Ledger.list(scope, params)
+            next = page.next_cursor && Map.put(params, "cursor", page.next_cursor)
+            {page.transactions, next}
+        end)
+        |> Enum.to_list()
+
+      # 6 expenses + 2 opening balances from setup = 8 rows.
+      assert Enum.map(pages, &length/1) == [2, 2, 2, 2]
+      assert pages |> List.flatten() |> Enum.map(& &1.id) == Enum.map(all, & &1.id)
+    end
+
+    test "the last full page has no next cursor", %{scope: scope, cash: cash} do
+      # With the 2 opening balances from setup there are exactly 3 rows.
+      post!(scope, %{"type" => "expense", "account_id" => cash.id, "amount" => "1"})
+
+      assert {:ok, %{transactions: [_, _, _], next_cursor: nil}} =
+               Ledger.list(scope, %{"limit" => "3"})
+    end
+
+    test "a cursor combines with filters and is stable when new transactions arrive",
+         %{scope: scope, cash: cash, card: card} do
+      for i <- 1..3,
+          do:
+            post!(scope, %{
+              "type" => "income",
+              "account_id" => card.id,
+              "amount" => "#{i}",
+              "occurred_on" => "2026-10-0#{i}"
+            })
+
+      {:ok, first} = Ledger.list(scope, %{"account_id" => card.id, "limit" => "2"})
+
+      post!(scope, %{
+        "type" => "income",
+        "account_id" => card.id,
+        "amount" => "9",
+        "occurred_on" => "2026-10-09"
+      })
+
+      post!(scope, %{
+        "type" => "expense",
+        "account_id" => cash.id,
+        "amount" => "1",
+        "occurred_on" => "2026-10-01"
+      })
+
+      {:ok, second} =
+        Ledger.list(scope, %{
+          "account_id" => card.id,
+          "limit" => "2",
+          "cursor" => first.next_cursor
+        })
+
+      assert Enum.map(first.transactions ++ second.transactions, & &1.occurred_on) ==
+               [~D[2026-10-03], ~D[2026-10-02], ~D[2026-10-01]]
+
+      assert second.next_cursor == nil
+    end
+
+    test "rejects a malformed cursor", %{scope: scope} do
+      for cursor <- [
+            "garbage",
+            Base.url_encode64("2026-10-01/not-a-uuid"),
+            Base.url_encode64("x/y/z")
+          ] do
+        assert {:error, {:invalid, %{"cursor" => "is invalid"}}} =
+                 Ledger.list(scope, %{"cursor" => cursor})
+      end
     end
 
     test "tags on a posted transaction can be replaced", %{scope: scope, cash: cash} do

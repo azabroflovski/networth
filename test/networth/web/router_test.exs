@@ -72,7 +72,7 @@ defmodule Networth.Web.RouterTest do
     assert {201, %{"transaction" => ^reversal}} =
              request(:post, "/api/workspaces/#{ws}/transactions/#{tx["id"]}/reverse", %{}, token)
 
-    {200, %{"transactions" => list}} =
+    {200, %{"transactions" => list, "next_cursor" => nil}} =
       request(:get, "/api/workspaces/#{ws}/transactions?type=expense", nil, token)
 
     assert [%{"id" => id, "reversed_by_id" => rid}] = list

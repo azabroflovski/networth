@@ -132,7 +132,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET /api/workspaces/:wid/accounts/:id/activity?from=&to=` | движение по счёту: остаток на начало, приход, расход, остаток на конец |
 | `GET /api/workspaces/:wid/reports/income-expense?from=&to=` | доходы и расходы по валютам и категориям, итог |
 | `GET /api/workspaces/:wid/reports/balances?on=` | балансы счетов на конец даты |
-| `GET /api/workspaces/:wid/transactions` | история; `account_id, category_id, tag_id, type, from, to, limit, offset` |
+| `GET /api/workspaces/:wid/transactions` | история, новые сверху; `account_id, category_id, tag_id, type, from, to, limit, cursor` → `{transactions, next_cursor}` |
 | `POST /api/workspaces/:wid/transactions` | провести операцию |
 | `GET /api/workspaces/:wid/transactions/:id` | операция с проводками |
 | `PATCH /api/workspaces/:wid/transactions/:id` | изменить описание `{description}`; остальное — только через сторно |

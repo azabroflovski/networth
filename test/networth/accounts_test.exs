@@ -16,7 +16,7 @@ defmodule Networth.AccountsTest do
     account = account!(scope, %{"opening_balance" => "150.25", "opened_on" => "2026-01-01"})
     assert account.balance == 15_025
 
-    assert {:ok, [opening]} = Ledger.list(scope, %{"account_id" => account.id})
+    assert {:ok, %{transactions: [opening]}} = Ledger.list(scope, %{"account_id" => account.id})
     assert opening.type == "opening_balance"
     assert opening.occurred_on == ~D[2026-01-01]
     assert ledger_totals(scope) == [%{currency: "USD", total: 0}]
@@ -110,7 +110,7 @@ defmodule Networth.AccountsTest do
 
       assert first == second
       assert [%{balance: 500_000_000}] = Accounts.list(scope)
-      assert {:ok, [_opening]} = Ledger.list(scope, %{"account_id" => first.id})
+      assert {:ok, %{transactions: [_opening]}} = Ledger.list(scope, %{"account_id" => first.id})
     end
 
     test "the same key with other params is rejected", %{scope: scope, params: params} do

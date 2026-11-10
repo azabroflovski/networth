@@ -201,8 +201,16 @@ defmodule Networth.Web.Router do
     in_workspace(conn, wid, fn scope ->
       conn = fetch_query_params(conn)
 
-      Ledger.list(scope, conn.query_params)
-      |> render_list(conn, :transactions, &View.transaction/1)
+      case Ledger.list(scope, conn.query_params) do
+        {:ok, %{transactions: transactions, next_cursor: next_cursor}} ->
+          send_json(conn, 200, %{
+            transactions: Enum.map(transactions, &View.transaction/1),
+            next_cursor: next_cursor
+          })
+
+        error ->
+          render_error(error, conn)
+      end
     end)
   end
 
