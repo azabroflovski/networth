@@ -98,6 +98,21 @@ defmodule Networth.Web.JSON do
     }
   end
 
+  def net_worth(report) do
+    %{
+      on: report.on,
+      currencies:
+        Enum.map(report.currencies, fn c ->
+          %{
+            currency: c.currency,
+            assets: money(c.assets, c.currency),
+            liabilities: money(c.liabilities, c.currency),
+            net: money(c.net, c.currency)
+          }
+        end)
+    }
+  end
+
   def balances(report), do: %{on: report.on, accounts: Enum.map(report.accounts, &account/1)}
 
   def account_activity(r) do

@@ -7,7 +7,7 @@ defmodule Networth.Reports do
   they negate the original entries (with their categories) and simply net out.
   """
 
-  alias Networth.{Accounts, Categories, DB, Params, Scope}
+  alias Networth.{Accounts, Categories, DB, Params, Scope, Workspaces}
 
   @doc """
   Income and expenses for a period, per currency: totals, net and a breakdown
@@ -104,6 +104,38 @@ defmodule Networth.Reports do
 
       {:ok, %{on: on, accounts: accounts}}
     end
+  end
+
+  @doc """
+  Net worth at the end of `on` (default: today in the workspace timezone),
+  per currency: assets, liabilities (as amounts owed) and net = assets −
+  liabilities. Archived accounts count; currencies are never combined.
+  """
+  def net_worth(%Scope{} = scope, params) do
+    with {:ok, on} <- Params.date(params, "on", fn -> Workspaces.today(scope) end),
+         {:ok, %{accounts: accounts}} <- balances(scope, %{"on" => Date.to_iso8601(on)}) do
+      currencies =
+        accounts
+        |> Enum.group_by(& &1.currency)
+        |> Enum.map(fn {currency, accounts} ->
+          assets = sum_balances(accounts, "asset")
+          liabilities = sum_balances(accounts, "liability")
+
+          %{
+            currency: currency,
+            assets: assets,
+            liabilities: liabilities,
+            net: assets - liabilities
+          }
+        end)
+        |> Enum.sort_by(& &1.currency)
+
+      {:ok, %{on: on, currencies: currencies}}
+    end
+  end
+
+  defp sum_balances(accounts, kind) do
+    for(%{kind: ^kind, balance: balance} <- accounts, do: balance) |> Enum.sum()
   end
 
   @doc """

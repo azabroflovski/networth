@@ -222,6 +222,60 @@ defmodule Networth.ReportsTest do
     end
   end
 
+  describe "net_worth/2" do
+    test "assets, liabilities and net per currency", ctx do
+      credit =
+        account!(ctx.scope, %{
+          "type" => "credit_card",
+          "currency" => "UZS",
+          "opening_balance" => "300",
+          "opened_on" => "2026-10-01"
+        })
+
+      {:ok, _} = Accounts.update(ctx.scope, ctx.usd.id, %{"archived" => true})
+
+      {:ok, report} = Reports.net_worth(ctx.scope, %{"on" => "2026-10-31"})
+
+      uzs_assets = m(1_000_000 - 150 - 20 - 100) + m(-30 + 1000 + 100 + 1_270_000)
+
+      assert report.currencies == [
+               %{currency: "USD", assets: m(395), liabilities: 0, net: m(395)},
+               %{
+                 currency: "UZS",
+                 assets: uzs_assets,
+                 liabilities: m(300),
+                 net: uzs_assets - m(300)
+               }
+             ]
+
+      assert credit.kind == "liability"
+    end
+
+    test "defaults to today in the workspace timezone and agrees with current balances", ctx do
+      {:ok, report} = Reports.net_worth(ctx.scope, %{})
+
+      assert report.on == Workspaces.today(ctx.scope)
+
+      expected =
+        ctx.scope
+        |> Accounts.list()
+        |> Enum.filter(&(&1.currency == "UZS"))
+        |> Enum.map(& &1.balance)
+        |> Enum.sum()
+
+      assert Enum.find(report.currencies, &(&1.currency == "UZS")).net == expected
+    end
+
+    test "before any account had money everything is zero", ctx do
+      {:ok, report} = Reports.net_worth(ctx.scope, %{"on" => "2026-09-30"})
+
+      assert Enum.all?(
+               report.currencies,
+               &(&1.assets == 0 and &1.liabilities == 0 and &1.net == 0)
+             )
+    end
+  end
+
   describe "account_activity/3" do
     test "opening balance, money in and out, closing balance", ctx do
       {:ok, activity} =

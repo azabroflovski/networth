@@ -198,6 +198,16 @@ defmodule Networth.Web.RouterTest do
              "income" => %{"total" => "0.00", "categories" => []}
            } = uzs
 
+    assert {200, %{"report" => %{"currencies" => [net_worth]}}} =
+             request(:get, "/api/workspaces/#{ws}/reports/net-worth?on=2026-10-04", nil, token)
+
+    assert net_worth == %{
+             "currency" => "UZS",
+             "assets" => "1000.00",
+             "liabilities" => "0.00",
+             "net" => "1000.00"
+           }
+
     assert {200,
             %{"report" => %{"on" => "2026-10-04", "accounts" => [%{"balance" => "1000.00"}]}}} =
              request(:get, "/api/workspaces/#{ws}/reports/balances?on=2026-10-04", nil, token)

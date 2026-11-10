@@ -188,6 +188,13 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  get "/api/workspaces/:wid/reports/net-worth" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+      Reports.net_worth(scope, conn.query_params) |> render(conn, 200, :report, &View.net_worth/1)
+    end)
+  end
+
   get "/api/workspaces/:wid/reports/balances" do
     in_workspace(conn, wid, fn scope ->
       conn = fetch_query_params(conn)
