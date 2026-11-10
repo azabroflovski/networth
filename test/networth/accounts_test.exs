@@ -133,4 +133,111 @@ defmodule Networth.AccountsTest do
       assert [%{balance: 500_000_000}] = Accounts.list(scope)
     end
   end
+
+  describe "debts" do
+    setup %{scope: scope} do
+      %{
+        cash:
+          account!(scope, %{"name" => "Cash", "currency" => "USD", "opening_balance" => "1000"})
+      }
+    end
+
+    test "money lent is an asset that shrinks as it is repaid or forgiven", %{
+      scope: scope,
+      cash: cash
+    } do
+      sasha = account!(scope, %{"name" => "Sasha", "type" => "receivable", "currency" => "USD"})
+      assert sasha.kind == "asset"
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => cash.id,
+        "to_account_id" => sasha.id,
+        "amount" => "100"
+      })
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => sasha.id,
+        "to_account_id" => cash.id,
+        "amount" => "60"
+      })
+
+      assert balance(scope, sasha.id) == 4000
+
+      {:ok, written_off} =
+        Categories.create(scope, %{"name" => "Written-off debts", "kind" => "expense"})
+
+      post!(scope, %{
+        "type" => "expense",
+        "account_id" => sasha.id,
+        "amount" => "40",
+        "category_id" => written_off.id
+      })
+
+      assert balance(scope, sasha.id) == 0
+      assert balance(scope, cash.id) == 96_000
+    end
+
+    test "money borrowed is a liability that grows and is paid back", %{scope: scope, cash: cash} do
+      mom = account!(scope, %{"name" => "Mom", "type" => "payable", "currency" => "USD"})
+      assert mom.kind == "liability"
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => mom.id,
+        "to_account_id" => cash.id,
+        "amount" => "500"
+      })
+
+      assert balance(scope, mom.id) == 50_000
+      assert balance(scope, cash.id) == 150_000
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => cash.id,
+        "to_account_id" => mom.id,
+        "amount" => "200"
+      })
+
+      assert balance(scope, mom.id) == 30_000
+    end
+
+    test "an existing debt can be entered as an opening balance", %{scope: scope} do
+      bank =
+        account!(scope, %{
+          "name" => "Friend",
+          "type" => "payable",
+          "currency" => "USD",
+          "opening_balance" => "250"
+        })
+
+      assert bank.balance == 25_000
+      assert ledger_totals(scope) == [%{currency: "USD", total: 0}]
+    end
+
+    test "debts count in net worth", %{scope: scope, cash: cash} do
+      sasha = account!(scope, %{"name" => "Sasha", "type" => "receivable", "currency" => "USD"})
+      mom = account!(scope, %{"name" => "Mom", "type" => "payable", "currency" => "USD"})
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => cash.id,
+        "to_account_id" => sasha.id,
+        "amount" => "100"
+      })
+
+      post!(scope, %{
+        "type" => "transfer",
+        "from_account_id" => mom.id,
+        "to_account_id" => cash.id,
+        "amount" => "300"
+      })
+
+      {:ok, %{currencies: [usd]}} = Networth.Reports.net_worth(scope, %{})
+
+      # Lending moves money between assets; borrowing adds cash and an equal debt.
+      assert usd == %{currency: "USD", assets: 130_000, liabilities: 30_000, net: 100_000}
+    end
+  end
 end

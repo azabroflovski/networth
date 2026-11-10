@@ -2,8 +2,9 @@ defmodule Networth.Accounts do
   @moduledoc """
   Financial accounts of a workspace.
 
-  User accounts are assets (cash, bank, card, deposit, savings) or liabilities
-  (credit_card, loan). System accounts (income, expense, opening_balance,
+  User accounts are assets (cash, bank, card, deposit, savings, receivable)
+  or liabilities (credit_card, loan, payable). Personal debts are receivable
+  (owed to me) and payable (I owe) accounts named after the counterparty. System accounts (income, expense, opening_balance,
   exchange) are created on demand, one per workspace and currency, and act as
   the other side of every ledger posting.
 
@@ -13,7 +14,7 @@ defmodule Networth.Accounts do
 
   alias Networth.{Currencies, DB, Ledger, Params, Scope, Workspaces}
 
-  @user_types ~w(cash bank card deposit savings credit_card loan)
+  @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
   @select """
   SELECT a.id, a.workspace_id, a.name, a.type, a.kind, a.currency, a.archived_at, a.inserted_at,

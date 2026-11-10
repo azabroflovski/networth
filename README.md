@@ -127,7 +127,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `DELETE /api/workspaces/:wid/members/:user_id` | удалить участника (owner) или выйти (свой id) |
 | `GET/POST /api/workspaces/:wid/invitations`, `DELETE …/:id` | приглашения (owner) |
 | `GET /api/invitations`, `POST /api/invitations/:id/accept` | мои приглашения / принять |
-| `GET/POST /api/workspaces/:wid/accounts` | счета с балансами / `{name, type, currency, opening_balance?, opened_on?, idempotency_key?}` |
+| `GET/POST /api/workspaces/:wid/accounts` | счета с балансами / `{name, type, currency, opening_balance?, opened_on?, idempotency_key?}`; `type`: cash, bank, card, deposit, savings, receivable, credit_card, loan, payable |
 | `GET/PATCH /api/workspaces/:wid/accounts/:id` | счёт / `{name?, archived?}` |
 | `GET /api/workspaces/:wid/accounts/:id/activity?from=&to=` | движение по счёту: остаток на начало, приход, расход, остаток на конец |
 | `GET /api/workspaces/:wid/reports/income-expense?from=&to=` | доходы и расходы по валютам и категориям, итог |
