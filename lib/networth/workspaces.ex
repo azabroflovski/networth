@@ -103,16 +103,100 @@ defmodule Networth.Workspaces do
     end
   end
 
+  @member_select """
+  SELECT u.id AS user_id, u.email, u.name, m.role, m.inserted_at
+  FROM workspace_members m JOIN users u ON u.id = m.user_id
+  """
+
   def list_members(%Scope{} = scope) do
-    DB.all(
-      """
-      SELECT u.id AS user_id, u.email, u.name, m.role, m.inserted_at
-      FROM workspace_members m JOIN users u ON u.id = m.user_id
-      WHERE m.workspace_id = $1
-      ORDER BY m.inserted_at, u.id
-      """,
-      [scope.workspace_id]
-    )
+    DB.all(@member_select <> " WHERE m.workspace_id = $1 ORDER BY m.inserted_at, u.id", [
+      scope.workspace_id
+    ])
+  end
+
+  @doc """
+  Changes a member's role (`owner` or `member`). Owner only. Ownership is
+  handed over by making someone else an owner and then stepping down.
+  """
+  def update_member(%Scope{} = scope, user_id, params) do
+    with :ok <- require_owner(scope),
+         {:ok, role} <- Params.one_of(params, "role", ["owner", "member"], required: true) do
+      change_membership(scope, user_id, fn member, owners ->
+        if member.role == "owner" and role == "member" and owners == 1 do
+          {:error, :last_owner}
+        else
+          DB.query!(
+            "UPDATE workspace_members SET role = $3 WHERE workspace_id = $1 AND user_id = $2",
+            [scope.workspace_id, member.user_id, role]
+          )
+
+          DB.one(@member_select <> " WHERE m.workspace_id = $1 AND m.user_id = $2", [
+            scope.workspace_id,
+            member.user_id
+          ])
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Removes a member. Owners can remove anyone; any member can remove
+  themselves (leave the workspace). The last owner can do neither.
+  The removed user's financial records stay: they belong to the workspace.
+  """
+  def remove_member(%Scope{} = scope, user_id) do
+    with :ok <- if(Params.cast_id(user_id) == scope.user_id, do: :ok, else: require_owner(scope)),
+         {:ok, :removed} <-
+           change_membership(scope, user_id, fn member, owners ->
+             if member.role == "owner" and owners == 1 do
+               {:error, :last_owner}
+             else
+               DB.query!(
+                 "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+                 [
+                   scope.workspace_id,
+                   member.user_id
+                 ]
+               )
+
+               :removed
+             end
+           end) do
+      :ok
+    end
+  end
+
+  # Membership changes lock the workspace row so that concurrent changes are
+  # serialized and the owner count read here stays true until commit.
+  # The workspace_members_has_owner trigger enforces the same rule in the database.
+  defp change_membership(scope, user_id, fun) do
+    with id when is_binary(id) <- Params.cast_id(user_id) do
+      DB.transaction(fn ->
+        DB.query!("SELECT 1 FROM workspaces WHERE id = $1 FOR UPDATE", [scope.workspace_id])
+
+        member =
+          DB.one(
+            "SELECT user_id, role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+            [
+              scope.workspace_id,
+              id
+            ]
+          ) || DB.rollback(:not_found)
+
+        %{owners: owners} =
+          DB.one(
+            "SELECT count(*) AS owners FROM workspace_members WHERE workspace_id = $1 AND role = 'owner'",
+            [scope.workspace_id]
+          )
+
+        case fun.(member, owners) do
+          {:error, reason} -> DB.rollback(reason)
+          result -> result
+        end
+      end)
+    else
+      _ -> {:error, :not_found}
+    end
   end
 
   def invite(%Scope{} = scope, params) do

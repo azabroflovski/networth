@@ -151,4 +151,148 @@ defmodule Networth.WorkspacesTest do
       assert Workspaces.accept_invitation(ctx.invitee.user, invitation.id) == {:error, :not_found}
     end
   end
+
+  describe "membership management" do
+    setup do
+      owner = register!("owner@example.com")
+      member = register!("member@example.com")
+      {:ok, family} = Workspaces.create(owner.user.id, %{"name" => "Family"})
+      {:ok, owner_scope} = Workspaces.authorize(owner.user.id, family.id)
+      {:ok, invitation} = Workspaces.invite(owner_scope, %{"email" => "member@example.com"})
+      {:ok, _} = Workspaces.accept_invitation(member.user, invitation.id)
+      {:ok, member_scope} = Workspaces.authorize(member.user.id, family.id)
+
+      %{
+        owner: owner.user,
+        member: member.user,
+        family: family,
+        owner_scope: owner_scope,
+        member_scope: member_scope
+      }
+    end
+
+    test "the owner removes a member, who loses access but whose records stay", ctx do
+      cash = account!(ctx.member_scope)
+
+      tx =
+        post!(ctx.member_scope, %{"type" => "income", "account_id" => cash.id, "amount" => "1"})
+
+      assert Workspaces.remove_member(ctx.owner_scope, ctx.member.id) == :ok
+      assert Workspaces.authorize(ctx.member.id, ctx.family.id) == {:error, :not_found}
+      assert {:ok, %{created_by: created_by}} = Ledger.get(ctx.owner_scope, tx.id)
+      assert created_by == ctx.member.id
+    end
+
+    test "a member can leave but cannot remove others or change roles", ctx do
+      assert Workspaces.remove_member(ctx.member_scope, ctx.owner.id) == {:error, :forbidden}
+
+      assert Workspaces.update_member(ctx.member_scope, ctx.member.id, %{"role" => "owner"}) ==
+               {:error, :forbidden}
+
+      assert Workspaces.remove_member(ctx.member_scope, ctx.member.id) == :ok
+      assert Workspaces.authorize(ctx.member.id, ctx.family.id) == {:error, :not_found}
+    end
+
+    test "ownership is handed over by promoting and stepping down", ctx do
+      assert {:ok, %{user_id: id, role: "owner", email: "member@example.com"}} =
+               Workspaces.update_member(ctx.owner_scope, ctx.member.id, %{"role" => "owner"})
+
+      assert id == ctx.member.id
+
+      assert {:ok, %{role: "member"}} =
+               Workspaces.update_member(ctx.owner_scope, ctx.owner.id, %{"role" => "member"})
+
+      assert {:ok, %Scope{role: "owner"}} = Workspaces.authorize(ctx.member.id, ctx.family.id)
+    end
+
+    test "the last owner can neither leave nor step down", ctx do
+      assert Workspaces.remove_member(ctx.owner_scope, ctx.owner.id) == {:error, :last_owner}
+
+      assert Workspaces.update_member(ctx.owner_scope, ctx.owner.id, %{"role" => "member"}) ==
+               {:error, :last_owner}
+
+      assert {:ok, %Scope{role: "owner"}} = Workspaces.authorize(ctx.owner.id, ctx.family.id)
+    end
+
+    test "validates the target and the role", ctx do
+      %{user: stranger} = register!()
+
+      assert Workspaces.remove_member(ctx.owner_scope, stranger.id) == {:error, :not_found}
+      assert Workspaces.remove_member(ctx.owner_scope, "nope") == {:error, :not_found}
+
+      assert {:error, {:invalid, %{"role" => _}}} =
+               Workspaces.update_member(ctx.owner_scope, ctx.member.id, %{"role" => "admin"})
+    end
+
+    test "two owners leaving at the same time leave exactly one owner", ctx do
+      {:ok, _} = Workspaces.update_member(ctx.owner_scope, ctx.member.id, %{"role" => "owner"})
+      {:ok, second_owner} = Workspaces.authorize(ctx.member.id, ctx.family.id)
+
+      results =
+        [ctx.owner_scope, second_owner]
+        |> Enum.map(fn scope ->
+          Task.async(fn -> Workspaces.remove_member(scope, scope.user_id) end)
+        end)
+        |> Enum.map(&Task.await/1)
+
+      assert Enum.sort(results) == Enum.sort([:ok, {:error, :last_owner}])
+      assert [%{role: "owner"}] = Workspaces.list_members(ctx.owner_scope)
+    end
+
+    @tag capture_log: true
+    test "the database keeps an owner under concurrent raw deletes", ctx do
+      {:ok, _} = Workspaces.update_member(ctx.owner_scope, ctx.member.id, %{"role" => "owner"})
+
+      results =
+        [ctx.owner.id, ctx.member.id]
+        |> Enum.map(fn user_id ->
+          Task.async(fn ->
+            try do
+              DB.transaction(fn ->
+                DB.query!(
+                  "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+                  [
+                    ctx.family.id,
+                    user_id
+                  ]
+                )
+
+                # Run the owner check now and commit later, so both checks run
+                # before either transaction commits.
+                DB.query!("SET CONSTRAINTS workspace_members_has_owner IMMEDIATE")
+                Process.sleep(200)
+              end)
+            rescue
+              e in Postgrex.Error -> {:error, e.postgres.message}
+            end
+          end)
+        end)
+        |> Enum.map(&Task.await/1)
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert Enum.count(results, &match?({:error, "workspace " <> _}, &1)) == 1
+      assert [%{role: "owner"}] = Workspaces.list_members(ctx.owner_scope)
+    end
+
+    @tag capture_log: true
+    test "the database refuses to leave a workspace without an owner", ctx do
+      assert_raise Postgrex.Error, ~r/must keep at least one owner/, fn ->
+        DB.transaction(fn ->
+          DB.query!("DELETE FROM workspace_members WHERE workspace_id = $1 AND role = 'owner'", [
+            ctx.family.id
+          ])
+        end)
+      end
+
+      assert_raise Postgrex.Error, ~r/must keep at least one owner/, fn ->
+        DB.transaction(fn ->
+          DB.query!("UPDATE workspace_members SET role = 'member' WHERE workspace_id = $1", [
+            ctx.family.id
+          ])
+        end)
+      end
+
+      assert {:ok, %Scope{role: "owner"}} = Workspaces.authorize(ctx.owner.id, ctx.family.id)
+    end
+  end
 end

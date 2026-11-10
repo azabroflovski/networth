@@ -110,6 +110,19 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  patch "/api/workspaces/:wid/members/:user_id" do
+    in_workspace(conn, wid, fn scope ->
+      Workspaces.update_member(scope, user_id, conn.body_params)
+      |> render(conn, 200, :member, &View.member/1)
+    end)
+  end
+
+  delete "/api/workspaces/:wid/members/:user_id" do
+    in_workspace(conn, wid, fn scope ->
+      Workspaces.remove_member(scope, user_id) |> render_empty(conn)
+    end)
+  end
+
   get "/api/workspaces/:wid/invitations" do
     in_workspace(conn, wid, fn scope ->
       Workspaces.list_invitations(scope) |> render_list(conn, :invitations, &View.invitation/1)
@@ -325,6 +338,9 @@ defmodule Networth.Web.Router do
 
   defp render_error({:error, :not_found}, conn), do: send_json(conn, 404, %{error: "not_found"})
   defp render_error({:error, :forbidden}, conn), do: send_json(conn, 403, %{error: "forbidden"})
+
+  defp render_error({:error, :last_owner}, conn),
+    do: send_json(conn, 409, %{error: "last_owner"})
 
   defp render_error({:error, :idempotency_key_reused}, conn),
     do: send_json(conn, 409, %{error: "idempotency_key_reused"})

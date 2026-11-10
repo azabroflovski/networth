@@ -107,7 +107,7 @@ lib/networth/
 | `{:error, {:invalid, %{"field" => "message"}}}` | 422 |
 | `{:error, :not_found}` (в т. ч. чужой workspace) | 404 |
 | `{:error, :forbidden}` | 403 |
-| `{:error, :idempotency_key_reused}` | 409 |
+| `{:error, :idempotency_key_reused}`, `{:error, :last_owner}` | 409 |
 | нет или неверный токен | 401 |
 
 ## HTTP API
@@ -123,6 +123,8 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `GET/POST /api/workspaces` | список / создание `{name, timezone?}` |
 | `GET/PATCH /api/workspaces/:wid` | просмотр / `{name?, timezone?}` (owner) |
 | `GET /api/workspaces/:wid/members` | участники |
+| `PATCH /api/workspaces/:wid/members/:user_id` | роль `{role}` (owner) |
+| `DELETE /api/workspaces/:wid/members/:user_id` | удалить участника (owner) или выйти (свой id) |
 | `GET/POST /api/workspaces/:wid/invitations`, `DELETE …/:id` | приглашения (owner) |
 | `GET /api/invitations`, `POST /api/invitations/:id/accept` | мои приглашения / принять |
 | `GET/POST /api/workspaces/:wid/accounts` | счета с балансами / `{name, type, currency, opening_balance?, opened_on?}` |
