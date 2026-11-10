@@ -32,7 +32,8 @@ defmodule Networth.Ledger do
     * exchange: from_account_id, from_amount, to_account_id, to_amount
 
   Common: occurred_on (ISO date, default today in the workspace timezone),
-  description, tag_ids, idempotency_key.
+  description, tag_ids, idempotency_key, and id (a client-generated UUIDv7;
+  `{:error, :id_taken}` if it already exists).
 
   Repeating a request with the same idempotency_key returns the originally
   posted transaction; reusing the key with different params returns
@@ -63,15 +64,27 @@ defmodule Networth.Ledger do
            Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
          {:ok, description} <- Params.string(params, "description", max: 500),
          {:ok, tag_ids} <- Params.ids(params, "tag_ids"),
+         {:ok, id} <- client_id(params),
          {:ok, key} <- Params.string(params, "idempotency_key") do
       {:ok,
        %{
          occurred_on: occurred_on,
          description: description,
          tag_ids: tag_ids,
+         id: id,
          idempotency_key: key,
          idempotency_hash: key && request_hash(params)
        }}
+    end
+  end
+
+  # A client may generate the id itself (offline input, AI drafts). It must be
+  # a UUIDv7 so that inserts stay ordered in the primary key index.
+  defp client_id(params) do
+    case Params.id(params, "id") do
+      {:ok, <<_::binary-14, ?7, _::binary>> = id} -> {:ok, id}
+      {:ok, nil} -> {:ok, nil}
+      _ -> Params.invalid("id", "must be a UUIDv7")
     end
   end
 
@@ -272,17 +285,18 @@ defmodule Networth.Ledger do
   end
 
   defp insert(scope, attrs) do
-    %Postgrex.Result{rows: rows} =
-      DB.query!(
+    result =
+      DB.query(
         """
         INSERT INTO transactions
-          (workspace_id, type, occurred_on, description, reverses_id,
+          (id, workspace_id, type, occurred_on, description, reverses_id,
            idempotency_key, idempotency_hash, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES (coalesce($1, uuidv7()), $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
         RETURNING id
         """,
         [
+          attrs[:id],
           scope.workspace_id,
           attrs.type,
           attrs.occurred_on,
@@ -295,9 +309,18 @@ defmodule Networth.Ledger do
       )
 
     id =
-      case rows do
-        [[id]] -> id
-        [] -> DB.rollback(:duplicate)
+      case result do
+        {:ok, %{rows: [[id]]}} ->
+          id
+
+        {:ok, %{rows: []}} ->
+          DB.rollback(:duplicate)
+
+        {:error, error} ->
+          case DB.constraint_violation(error) do
+            {:unique_violation, "transactions_pkey"} -> DB.rollback(:id_taken)
+            _ -> raise error
+          end
       end
 
     entries = attrs.entries

@@ -339,6 +339,8 @@ defmodule Networth.Web.Router do
   defp render_error({:error, :not_found}, conn), do: send_json(conn, 404, %{error: "not_found"})
   defp render_error({:error, :forbidden}, conn), do: send_json(conn, 403, %{error: "forbidden"})
 
+  defp render_error({:error, :id_taken}, conn), do: send_json(conn, 409, %{error: "id_taken"})
+
   defp render_error({:error, :last_owner}, conn),
     do: send_json(conn, 409, %{error: "last_owner"})
 

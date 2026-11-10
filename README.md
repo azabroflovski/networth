@@ -107,7 +107,7 @@ lib/networth/
 | `{:error, {:invalid, %{"field" => "message"}}}` | 422 |
 | `{:error, :not_found}` (в т. ч. чужой workspace) | 404 |
 | `{:error, :forbidden}` | 403 |
-| `{:error, :idempotency_key_reused}`, `{:error, :last_owner}` | 409 |
+| `{:error, :idempotency_key_reused \| :id_taken \| :last_owner}` | 409 |
 | нет или неверный токен | 401 |
 
 ## HTTP API
@@ -145,7 +145,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 Тела операций (`occurred_on` по умолчанию — сегодня в часовом поясе workspace; `lines` — split по категориям вместо `amount` + `category_id`):
 
 ```json
-{"type": "expense",  "account_id": "…", "amount": "200000", "category_id": "…", "tag_ids": ["…"], "occurred_on": "2026-11-10", "description": "Продукты", "idempotency_key": "…"}
+{"type": "expense",  "account_id": "…", "amount": "200000", "category_id": "…", "tag_ids": ["…"], "occurred_on": "2026-11-10", "description": "Продукты", "idempotency_key": "…", "id": "<UUIDv7, необязательно>"}
 {"type": "expense",  "account_id": "…", "lines": [{"amount": "200000", "category_id": "…"}, {"amount": "100000", "category_id": "…"}]}
 {"type": "income",   "account_id": "…", "amount": "15000000", "category_id": "…"}
 {"type": "transfer", "from_account_id": "…", "to_account_id": "…", "amount": "1000000"}
