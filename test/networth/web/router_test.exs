@@ -301,6 +301,22 @@ defmodule Networth.Web.RouterTest do
     assert {401, %{"error" => "invalid_credentials"}} =
              request(:post, "/api/login", %{email: "auth@example.com", password: "nope"})
 
+    for _ <- 1..4,
+        do: request(:post, "/api/login", %{email: "auth@example.com", password: "nope"})
+
+    conn =
+      conn(
+        :post,
+        "/api/login",
+        Jason.encode!(%{email: "auth@example.com", password: "password123"})
+      )
+      |> put_req_header("content-type", "application/json")
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 429
+    assert [retry_after] = get_resp_header(conn, "retry-after")
+    assert String.to_integer(retry_after) > 0
+
     assert {204, nil} = request(:post, "/api/logout", nil, token)
     assert {401, _} = request(:get, "/api/me", nil, token)
     assert {200, _} = request(:get, "/api/me", nil, token2)

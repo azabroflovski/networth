@@ -42,9 +42,14 @@ defmodule Networth.Web.Router do
   end
 
   post "/api/login" do
-    case Users.authenticate(conn.body_params["email"], conn.body_params["password"]) do
-      {:ok, user} ->
-        send_json(conn, 200, %{user: View.user(user), token: Users.create_token(user.id)})
+    case Users.login(conn.body_params["email"], conn.body_params["password"], conn.remote_ip) do
+      {:ok, user, token} ->
+        send_json(conn, 200, %{user: View.user(user), token: token})
+
+      {:error, {:rate_limited, retry_after}} ->
+        conn
+        |> put_resp_header("retry-after", Integer.to_string(retry_after))
+        |> send_json(429, %{error: "too_many_attempts"})
 
       error ->
         render_error(error, conn)

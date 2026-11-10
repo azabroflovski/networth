@@ -6,7 +6,7 @@ defmodule Networth.Users do
   database transaction.
   """
 
-  alias Networth.{DB, Params, Workspaces}
+  alias Networth.{DB, Params, RateLimit, Workspaces}
 
   @user_columns "id, email, name, inserted_at"
 
@@ -49,6 +49,37 @@ defmodule Networth.Users do
   end
 
   def get(id), do: DB.one("SELECT #{@user_columns} FROM users WHERE id = $1", [id])
+
+  @doc """
+  Password login with brute-force protection: too many failed attempts for
+  an email, or too many attempts from one client address, are refused with
+  `{:error, {:rate_limited, retry_after_seconds}}` before checking the
+  password. Returns the user and a new token.
+  """
+  def login(email, password, client_ip) do
+    limits = Application.fetch_env!(:networth, :login_limits)
+    {ip_limit, ip_window} = limits[:per_ip]
+    {email_limit, email_window} = limits[:per_email]
+    ip_key = {:login_ip, client_ip}
+    email_key = {:login_email, is_binary(email) && normalize_email(email)}
+
+    with :ok <- RateLimit.check(ip_key, ip_limit),
+         :ok <- RateLimit.check(email_key, email_limit) do
+      RateLimit.record(ip_key, ip_window)
+
+      case authenticate(email, password) do
+        {:ok, user} ->
+          RateLimit.reset(email_key)
+          {:ok, user, create_token(user.id)}
+
+        error ->
+          RateLimit.record(email_key, email_window)
+          error
+      end
+    else
+      {:error, retry_after} -> {:error, {:rate_limited, retry_after}}
+    end
+  end
 
   def authenticate(email, password) when is_binary(email) and is_binary(password) do
     row =

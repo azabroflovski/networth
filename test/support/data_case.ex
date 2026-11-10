@@ -23,6 +23,8 @@ defmodule Networth.DataCase do
     RESTART IDENTITY CASCADE
     """)
 
+    Networth.RateLimit.reset_all()
+
     :ok
   end
 

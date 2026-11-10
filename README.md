@@ -88,7 +88,8 @@ lib/networth/
   currencies.ex      справочник валют
   params.ex          проверка внешних параметров
   scope.ex           %Scope{user_id, workspace_id, role}
-  users.ex           регистрация, пароли, токены
+  users.ex           регистрация, вход, пароли, токены
+  rate_limit.ex      счётчики попыток в ETS
   workspaces.ex      workspaces, членство, приглашения, authorize/2
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
@@ -118,7 +119,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | Метод и путь | Назначение |
 |---|---|
 | `POST /api/register` | `{email, name, password, timezone?}` → пользователь, личный workspace, токен |
-| `POST /api/login`, `POST /api/logout` | вход / отзыв текущего токена |
+| `POST /api/login`, `POST /api/logout` | вход / отзыв текущего токена; слишком много попыток — 429 с `retry-after` |
 | `GET /api/me` | пользователь и его workspaces |
 | `GET /api/currencies` | справочник валют |
 | `GET/POST /api/workspaces` | список / создание `{name, timezone?}` |

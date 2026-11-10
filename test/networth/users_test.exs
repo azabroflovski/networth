@@ -96,4 +96,52 @@ defmodule Networth.UsersTest do
       assert Users.get_by_token(token) == nil
     end
   end
+
+  describe "login/3" do
+    @ip {10, 0, 0, 1}
+
+    setup do
+      register!("dave@example.com")
+      :ok
+    end
+
+    test "returns the user and a working token" do
+      assert {:ok, %{email: "dave@example.com"}, token} =
+               Users.login("dave@example.com", "correct horse", @ip)
+
+      assert %{email: "dave@example.com"} = Users.get_by_token(token)
+    end
+
+    test "locks an email after 5 failed attempts, even for the right password" do
+      for _ <- 1..5,
+          do:
+            assert(
+              Users.login("dave@example.com", "wrong", @ip) == {:error, :invalid_credentials}
+            )
+
+      assert {:error, {:rate_limited, retry_after}} =
+               Users.login("Dave@Example.com", "correct horse", @ip)
+
+      assert retry_after > 0
+
+      # Another account is not affected.
+      register!("erin@example.com")
+      assert {:ok, _, _} = Users.login("erin@example.com", "correct horse", @ip)
+    end
+
+    test "a successful login resets the failure count" do
+      for _ <- 1..4, do: Users.login("dave@example.com", "wrong", @ip)
+      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", @ip)
+      for _ <- 1..4, do: Users.login("dave@example.com", "wrong", @ip)
+
+      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", @ip)
+    end
+
+    test "limits all attempts from one address" do
+      for i <- 1..20, do: Users.login("nobody#{i}@example.com", "x", @ip)
+
+      assert {:error, {:rate_limited, _}} = Users.login("dave@example.com", "correct horse", @ip)
+      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", {10, 0, 0, 2})
+    end
+  end
 end
