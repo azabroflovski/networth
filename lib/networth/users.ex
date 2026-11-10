@@ -1,0 +1,143 @@
+defmodule Networth.Users do
+  @moduledoc """
+  User accounts, password authentication and bearer tokens.
+
+  Registration creates the user together with their personal workspace in one
+  database transaction.
+  """
+
+  alias Networth.{DB, Params, Workspaces}
+
+  @user_columns "id, email, name, inserted_at"
+
+  def register(params) do
+    with {:ok, email} <- email(params),
+         {:ok, name} <- Params.string(params, "name", required: true),
+         {:ok, password} <- password(params) do
+      DB.transaction(fn ->
+        user = insert_user(email, name, password)
+        workspace_params = %{"name" => "Personal", "timezone" => params["timezone"]}
+
+        workspace =
+          case Workspaces.create(user.id, workspace_params) do
+            {:ok, workspace} -> workspace
+            {:error, reason} -> DB.rollback(reason)
+          end
+
+        %{user: user, workspace: workspace}
+      end)
+    end
+  end
+
+  defp insert_user(email, name, password) do
+    sql =
+      "INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING #{@user_columns}"
+
+    case DB.query(sql, [email, name, hash_password(password)]) do
+      {:ok, result} ->
+        result |> DB.to_maps() |> hd()
+
+      {:error, error} ->
+        case DB.constraint_violation(error) do
+          {:unique_violation, "users_email_index"} ->
+            DB.rollback({:invalid, %{"email" => "is already registered"}})
+
+          _ ->
+            raise error
+        end
+    end
+  end
+
+  def get(id), do: DB.one("SELECT #{@user_columns} FROM users WHERE id = $1", [id])
+
+  def authenticate(email, password) when is_binary(email) and is_binary(password) do
+    row =
+      DB.one("SELECT #{@user_columns}, password_hash FROM users WHERE email = $1", [
+        normalize_email(email)
+      ])
+
+    cond do
+      row && verify_password(password, row.password_hash) ->
+        {:ok, Map.delete(row, :password_hash)}
+
+      row ->
+        {:error, :invalid_credentials}
+
+      true ->
+        # Spend the same time as a real check so response time does not reveal registered emails.
+        hash_password(password)
+        {:error, :invalid_credentials}
+    end
+  end
+
+  def authenticate(_email, _password), do: {:error, :invalid_credentials}
+
+  @doc "Creates a bearer token. Only its hash is stored."
+  def create_token(user_id) do
+    token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    ttl_seconds = Application.fetch_env!(:networth, :token_ttl_days) * 86_400
+
+    DB.query!(
+      "INSERT INTO user_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, now() + make_interval(secs => $3))",
+      [user_id, token_hash(token), ttl_seconds]
+    )
+
+    token
+  end
+
+  def get_by_token(token) when is_binary(token) do
+    DB.one(
+      """
+      SELECT u.id, u.email, u.name, u.inserted_at
+      FROM user_tokens t JOIN users u ON u.id = t.user_id
+      WHERE t.token_hash = $1 AND t.expires_at > now()
+      """,
+      [token_hash(token)]
+    )
+  end
+
+  def delete_token(token) when is_binary(token) do
+    DB.query!("DELETE FROM user_tokens WHERE token_hash = $1", [token_hash(token)])
+    :ok
+  end
+
+  def normalize_email(email), do: email |> String.trim() |> String.downcase()
+
+  def email(params) do
+    with {:ok, email} <- Params.string(params, "email", required: true, max: 254) do
+      email = normalize_email(email)
+
+      if Regex.match?(~r/^[^@\s]+@[^@\s]+$/, email),
+        do: {:ok, email},
+        else: Params.invalid("email", "is invalid")
+    end
+  end
+
+  defp password(params) do
+    case Map.get(params, "password") do
+      p when is_binary(p) and byte_size(p) >= 8 and byte_size(p) <= 256 -> {:ok, p}
+      p when is_binary(p) -> Params.invalid("password", "must be 8 to 256 bytes long")
+      _ -> Params.invalid("password", "is required")
+    end
+  end
+
+  defp token_hash(token), do: :crypto.hash(:sha256, token)
+
+  # Format: pbkdf2-sha256$<iterations>$<salt>$<hash>, base64 without padding.
+  defp hash_password(password) do
+    iterations = Application.fetch_env!(:networth, :password_iterations)
+    salt = :crypto.strong_rand_bytes(16)
+    hash = :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, 32)
+    Enum.join(["pbkdf2-sha256", iterations, b64(salt), b64(hash)], "$")
+  end
+
+  defp verify_password(password, encoded) do
+    ["pbkdf2-sha256", iterations, salt, hash] = String.split(encoded, "$")
+    salt = Base.decode64!(salt, padding: false)
+    expected = Base.decode64!(hash, padding: false)
+    actual = :crypto.pbkdf2_hmac(:sha256, password, salt, String.to_integer(iterations), 32)
+    :crypto.hash_equals(actual, expected)
+  end
+
+  defp b64(bin), do: Base.encode64(bin, padding: false)
+end

@@ -1,0 +1,157 @@
+defmodule Networth.Accounts do
+  @moduledoc """
+  Financial accounts of a workspace.
+
+  User accounts are assets (cash, bank, card, deposit, savings) or liabilities
+  (credit_card, loan). System accounts (income, expense, opening_balance,
+  exchange) are created on demand, one per workspace and currency, and act as
+  the other side of every ledger posting.
+
+  Balances are always computed from ledger entries and returned in the
+  account's natural sign: money held for assets, money owed for liabilities.
+  """
+
+  alias Networth.{Currencies, DB, Ledger, Params, Scope, Workspaces}
+
+  @user_types ~w(cash bank card deposit savings credit_card loan)
+
+  @select """
+  SELECT a.id, a.workspace_id, a.name, a.type, a.kind, a.currency, a.archived_at, a.inserted_at,
+    (CASE WHEN a.kind IN ('asset', 'expense') THEN 1 ELSE -1 END)
+      * coalesce((SELECT sum(e.amount) FROM ledger_entries e WHERE e.account_id = a.id), 0)::bigint AS balance
+  FROM accounts a
+  """
+
+  def types, do: @user_types
+
+  def list(%Scope{} = scope) do
+    DB.all(
+      @select <>
+        " WHERE a.workspace_id = $1 AND NOT a.system ORDER BY a.archived_at NULLS FIRST, a.id",
+      [
+        scope.workspace_id
+      ]
+    )
+  end
+
+  def get(%Scope{} = scope, id) do
+    with id when is_binary(id) <- Params.cast_id(id),
+         %{} = account <-
+           DB.one(@select <> " WHERE a.id = $1 AND a.workspace_id = $2 AND NOT a.system", [
+             id,
+             scope.workspace_id
+           ]) do
+      {:ok, account}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Creates an account. An optional `opening_balance` (natural sign, decimal
+  string) is posted as an opening_balance transaction dated `opened_on`.
+  """
+  def create(%Scope{} = scope, params) do
+    with {:ok, name} <- Params.string(params, "name", required: true),
+         {:ok, type} <- Params.one_of(params, "type", @user_types, required: true),
+         {:ok, currency} <- currency(params),
+         {:ok, opening_balance} <- Params.amount(params, "opening_balance", currency),
+         {:ok, opened_on} <- Params.date(params, "opened_on", fn -> Workspaces.today(scope) end) do
+      DB.transaction(fn ->
+        account =
+          "INSERT INTO accounts (workspace_id, name, type, currency) VALUES ($1, $2, $3, $4) RETURNING *"
+          |> DB.query([scope.workspace_id, name, type, currency])
+          |> handle_write()
+
+        if opening_balance not in [nil, 0] do
+          {:ok, _} = Ledger.post_opening_balance(scope, account, opening_balance, opened_on)
+        end
+
+        {:ok, account} = get(scope, account.id)
+        account
+      end)
+    end
+  end
+
+  @doc "Renames and/or archives (`\"archived\" => true`) an account."
+  def update(%Scope{} = scope, id, params) do
+    with {:ok, account} <- get(scope, id),
+         {:ok, name} <- Params.string(params, "name", default: account.name),
+         {:ok, archived} <- Params.boolean(params, "archived") do
+      DB.transaction(fn ->
+        """
+        UPDATE accounts SET name = $3,
+          archived_at = CASE WHEN $4::boolean IS NULL THEN archived_at
+                             WHEN $4 THEN coalesce(archived_at, now()) END
+        WHERE id = $1 AND workspace_id = $2
+        """
+        |> DB.query([account.id, scope.workspace_id, name, archived])
+        |> handle_write()
+
+        {:ok, account} = get(scope, account.id)
+        account
+      end)
+    end
+  end
+
+  @doc """
+  Loads a user account for posting and locks it against concurrent archiving.
+  Must run inside a transaction.
+  """
+  def fetch_for_posting(%Scope{} = scope, field, id) do
+    account =
+      DB.one(
+        """
+        SELECT id, name, type, kind, currency, archived_at FROM accounts
+        WHERE id = $1 AND workspace_id = $2 AND NOT system
+        FOR SHARE
+        """,
+        [id, scope.workspace_id]
+      )
+
+    cond do
+      is_nil(account) -> Params.invalid(field, "does not exist")
+      account.archived_at -> Params.invalid(field, "is archived")
+      true -> {:ok, account}
+    end
+  end
+
+  @doc "Returns the system account of `type` for the currency, creating it if needed."
+  def system_account(workspace_id, type, currency)
+      when type in ~w(income expense opening_balance exchange) do
+    DB.query!(
+      """
+      INSERT INTO accounts (workspace_id, name, type, currency) VALUES ($1, $2, $3, $4)
+      ON CONFLICT (workspace_id, type, currency) WHERE system DO NOTHING
+      """,
+      [workspace_id, "#{type} #{currency}", type, currency]
+    )
+
+    DB.one(
+      "SELECT id, name, type, kind, currency FROM accounts WHERE workspace_id = $1 AND type = $2 AND currency = $3 AND system",
+      [workspace_id, type, currency]
+    )
+  end
+
+  defp currency(params) do
+    with {:ok, code} <- Params.string(params, "currency", required: true, max: 3) do
+      code = String.upcase(code)
+
+      if Currencies.get(code),
+        do: {:ok, code},
+        else: Params.invalid("currency", "is not supported")
+    end
+  end
+
+  defp handle_write({:ok, result}), do: result |> DB.to_maps() |> List.first()
+
+  defp handle_write({:error, error}) do
+    case DB.constraint_violation(error) do
+      {:unique_violation, "accounts_name_index"} ->
+        DB.rollback({:invalid, %{"name" => "already exists"}})
+
+      _ ->
+        raise error
+    end
+  end
+end

@@ -1,0 +1,220 @@
+defmodule Networth.Web.RouterTest do
+  use Networth.DataCase
+
+  import Plug.Test
+  import Plug.Conn
+
+  alias Networth.Web.Router
+
+  defp request(method, path, body \\ nil, token \\ nil) do
+    conn =
+      if body,
+        do:
+          conn(method, path, Jason.encode!(body))
+          |> put_req_header("content-type", "application/json"),
+        else: conn(method, path)
+
+    conn = if token, do: put_req_header(conn, "authorization", "Bearer " <> token), else: conn
+    conn = Router.call(conn, Router.init([]))
+    {conn.status, if(conn.resp_body == "", do: nil, else: Jason.decode!(conn.resp_body))}
+  end
+
+  defp register(email) do
+    {201, body} =
+      request(:post, "/api/register", %{email: email, name: "U", password: "password123"})
+
+    {body["token"], body["workspace"]["id"]}
+  end
+
+  test "end-to-end: register, create accounts, post operations, read balances" do
+    {token, ws} = register("e2e@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "Cash", type: "cash", currency: "UZS", opening_balance: "1000000"},
+        token
+      )
+
+    assert cash["balance"] == "1000000.00"
+
+    {200, %{"categories" => categories}} =
+      request(:get, "/api/workspaces/#{ws}/categories", nil, token)
+
+    food = Enum.find(categories, &(&1["name"] == "Food"))["id"]
+
+    {201, %{"transaction" => tx}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/transactions",
+        %{
+          type: "expense",
+          account_id: cash["id"],
+          amount: "200000",
+          category_id: food,
+          description: "Groceries"
+        },
+        token
+      )
+
+    assert tx["type"] == "expense"
+    assert Enum.map(tx["entries"], & &1["amount"]) == ["200000.00", "-200000.00"]
+
+    {200, %{"account" => %{"balance" => "800000.00"}}} =
+      request(:get, "/api/workspaces/#{ws}/accounts/#{cash["id"]}", nil, token)
+
+    {201, %{"transaction" => reversal}} =
+      request(:post, "/api/workspaces/#{ws}/transactions/#{tx["id"]}/reverse", %{}, token)
+
+    assert reversal["reverses_id"] == tx["id"]
+
+    assert {201, %{"transaction" => ^reversal}} =
+             request(:post, "/api/workspaces/#{ws}/transactions/#{tx["id"]}/reverse", %{}, token)
+
+    {200, %{"transactions" => list}} =
+      request(:get, "/api/workspaces/#{ws}/transactions?type=expense", nil, token)
+
+    assert [%{"id" => id, "reversed_by_id" => rid}] = list
+    assert {id, rid} == {tx["id"], reversal["id"]}
+  end
+
+  test "exchange details are rendered with currencies and rate" do
+    {token, ws} = register("fx@example.com")
+
+    {201, %{"account" => usd}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "USD", type: "cash", currency: "USD", opening_balance: "100"},
+        token
+      )
+
+    {201, %{"account" => uzs}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "UZS", type: "card", currency: "UZS"},
+        token
+      )
+
+    {201, %{"transaction" => tx}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/transactions",
+        %{
+          type: "exchange",
+          from_account_id: usd["id"],
+          from_amount: "100",
+          to_account_id: uzs["id"],
+          to_amount: "1270000"
+        },
+        token
+      )
+
+    assert tx["exchange"] == %{
+             "from_account_id" => usd["id"],
+             "from_amount" => "100.00",
+             "from_currency" => "USD",
+             "to_account_id" => uzs["id"],
+             "to_amount" => "1270000.00",
+             "to_currency" => "UZS",
+             "rate" => "12700"
+           }
+  end
+
+  test "authentication is required and tokens can be revoked" do
+    {token, ws} = register("auth@example.com")
+
+    assert {401, _} = request(:get, "/api/me")
+    assert {401, _} = request(:get, "/api/workspaces/#{ws}/accounts", nil, "bogus")
+
+    assert {200, %{"user" => %{"email" => "auth@example.com"}, "workspaces" => [_]}} =
+             request(:get, "/api/me", nil, token)
+
+    assert {200, %{"token" => token2}} =
+             request(:post, "/api/login", %{email: "auth@example.com", password: "password123"})
+
+    assert {401, %{"error" => "invalid_credentials"}} =
+             request(:post, "/api/login", %{email: "auth@example.com", password: "nope"})
+
+    assert {204, nil} = request(:post, "/api/logout", nil, token)
+    assert {401, _} = request(:get, "/api/me", nil, token)
+    assert {200, _} = request(:get, "/api/me", nil, token2)
+  end
+
+  test "another user's workspace looks nonexistent" do
+    {_alice, alice_ws} = register("alice@example.com")
+    {bob, _} = register("bob@example.com")
+
+    assert {404, %{"error" => "not_found"}} =
+             request(:get, "/api/workspaces/#{alice_ws}/accounts", nil, bob)
+
+    assert {404, _} =
+             request(:post, "/api/workspaces/#{alice_ws}/transactions", %{type: "income"}, bob)
+  end
+
+  test "invitation flow over HTTP" do
+    {alice, _} = register("alice@example.com")
+    {bob, _} = register("bob@example.com")
+
+    {201, %{"workspace" => %{"id" => family}}} =
+      request(:post, "/api/workspaces", %{name: "Family"}, alice)
+
+    {201, %{"invitation" => %{"id" => inv}}} =
+      request(:post, "/api/workspaces/#{family}/invitations", %{email: "bob@example.com"}, alice)
+
+    assert {200, %{"invitations" => [%{"id" => ^inv, "workspace_name" => "Family"}]}} =
+             request(:get, "/api/invitations", nil, bob)
+
+    assert {200, %{"workspace" => %{"id" => ^family, "role" => "member"}}} =
+             request(:post, "/api/invitations/#{inv}/accept", nil, bob)
+
+    assert {403, _} =
+             request(
+               :post,
+               "/api/workspaces/#{family}/invitations",
+               %{email: "c@example.com"},
+               bob
+             )
+
+    assert {200, %{"members" => [_, _]}} =
+             request(:get, "/api/workspaces/#{family}/members", nil, bob)
+  end
+
+  test "validation errors, malformed JSON and unknown routes" do
+    {token, ws} = register("errors@example.com")
+
+    {201, %{"account" => cash}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "C", type: "cash", currency: "USD"},
+        token
+      )
+
+    assert {422, %{"error" => "invalid", "errors" => %{"amount" => _}}} =
+             request(
+               :post,
+               "/api/workspaces/#{ws}/transactions",
+               %{type: "income", account_id: cash["id"], amount: 12.5},
+               token
+             )
+
+    expense = %{type: "expense", account_id: cash["id"], amount: "1", idempotency_key: "k1"}
+    assert {201, _} = request(:post, "/api/workspaces/#{ws}/transactions", expense, token)
+
+    assert {409, %{"error" => "idempotency_key_reused"}} =
+             request(:post, "/api/workspaces/#{ws}/transactions", %{expense | amount: "2"}, token)
+
+    conn =
+      conn(:post, "/api/register", "{not json")
+      |> put_req_header("content-type", "application/json")
+
+    assert_raise Plug.Parsers.ParseError, fn -> Router.call(conn, Router.init([])) end
+    assert {400, _headers, body} = sent_resp(conn)
+    assert Jason.decode!(body) == %{"error" => "malformed_json"}
+
+    assert {404, %{"error" => "not_found"}} = request(:get, "/api/nope", nil, token)
+  end
+end
