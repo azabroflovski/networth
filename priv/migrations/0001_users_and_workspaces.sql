@@ -20,14 +20,21 @@ CREATE TABLE user_tokens (
 CREATE UNIQUE INDEX user_tokens_token_hash_index ON user_tokens (token_hash);
 CREATE INDEX user_tokens_user_id_index ON user_tokens (user_id);
 
--- timezone (IANA name) defines "today" for the workspace: default operation dates
--- and period boundaries. Validated by the application against pg_timezone_names.
+-- timezone (IANA name) defines "today" for the workspace: default operation
+-- dates and period boundaries. Validated by the application against
+-- pg_timezone_names.
+-- deletion_scheduled_at: set by the owner; a periodic job purges the
+-- workspace with all its data once that moment has passed.
 CREATE TABLE workspaces (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   name text NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
   timezone text NOT NULL DEFAULT 'UTC',
+  deletion_scheduled_at timestamptz,
   inserted_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX workspaces_deletion_scheduled_at_index
+  ON workspaces (deletion_scheduled_at) WHERE deletion_scheduled_at IS NOT NULL;
 
 CREATE TABLE workspace_members (
   workspace_id uuid NOT NULL REFERENCES workspaces,
@@ -39,8 +46,28 @@ CREATE TABLE workspace_members (
 
 CREATE INDEX workspace_members_user_id_index ON workspace_members (user_id);
 
--- An invitation is addressed to an email and grants the member role once accepted
--- by the user registered with that email.
+-- Every workspace keeps at least one owner. Checked at commit; the workspace
+-- row is locked first so that two concurrent changes (two owners leaving at
+-- once) are serialized and the second one sees the first.
+CREATE FUNCTION check_workspace_has_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM workspaces WHERE id = OLD.workspace_id FOR UPDATE;
+
+  IF FOUND AND NOT EXISTS (
+    SELECT 1 FROM workspace_members WHERE workspace_id = OLD.workspace_id AND role = 'owner'
+  ) THEN
+    RAISE EXCEPTION 'workspace % must keep at least one owner', OLD.workspace_id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'workspace_has_owner';
+  END IF;
+
+  RETURN NULL;
+END $$;
+
+CREATE CONSTRAINT TRIGGER workspace_members_has_owner AFTER UPDATE OR DELETE ON workspace_members
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_workspace_has_owner();
+
+-- An invitation is addressed to an email and grants the member role once
+-- accepted by the user registered with that email.
 CREATE TABLE workspace_invitations (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   workspace_id uuid NOT NULL REFERENCES workspaces,
