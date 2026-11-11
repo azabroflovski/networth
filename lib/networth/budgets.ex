@@ -36,7 +36,12 @@ defmodule Networth.Budgets do
              amount: non_negative_amount(params, currency)
            ) do
       DB.transaction(fn ->
-        previous = effective_limit(scope, category_id, currency, month)
+        previous =
+          scope
+          |> limits(month)
+          |> Enum.find_value(
+            &(&1.category_id == category_id and &1.currency == currency and &1.amount)
+          )
 
         budget =
           DB.one(
@@ -67,20 +72,19 @@ defmodule Networth.Budgets do
     end
   end
 
-  # The limit in effect for the month before this change, or nil.
-  defp effective_limit(scope, category_id, currency, month) do
-    case DB.one(
-           """
-           SELECT amount FROM budgets
-           WHERE workspace_id = $1 AND category_id = $2 AND currency = $3 AND starts_on <= $4
-           ORDER BY starts_on DESC LIMIT 1
-           """,
-           [scope.workspace_id, category_id, currency, month]
-         ) do
-      %{amount: 0} -> nil
-      %{amount: amount} -> amount
-      nil -> nil
-    end
+  # Limits in effect for `month`: per category and currency, the row with the
+  # latest starts_on not after it. A 0 amount means the budget was ended.
+  defp limits(scope, month) do
+    DB.all(
+      """
+      SELECT * FROM (
+        SELECT DISTINCT ON (category_id, currency) category_id, currency, amount
+        FROM budgets WHERE workspace_id = $1 AND starts_on <= $2
+        ORDER BY category_id, currency, starts_on DESC
+      ) b WHERE amount > 0
+      """,
+      [scope.workspace_id, month]
+    )
   end
 
   defp non_negative_amount(params, currency) do
@@ -106,17 +110,7 @@ defmodule Networth.Budgets do
     with {:ok, month} <- month(scope, params) do
       last_day = Date.end_of_month(month)
 
-      limits =
-        DB.all(
-          """
-          SELECT * FROM (
-            SELECT DISTINCT ON (category_id, currency) category_id, currency, amount
-            FROM budgets WHERE workspace_id = $1 AND starts_on <= $2
-            ORDER BY category_id, currency, starts_on DESC
-          ) b WHERE amount > 0
-          """,
-          [scope.workspace_id, month]
-        )
+      limits = limits(scope, month)
 
       {:ok, %{currencies: currencies}} =
         Reports.income_expense(scope, %{
