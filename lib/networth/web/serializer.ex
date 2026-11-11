@@ -5,6 +5,7 @@ defmodule Networth.Web.Serializer do
   """
 
   alias Networth.Money
+  alias Networth.Web.ErrorMessages
 
   def user(u), do: Map.take(u, [:id, :email, :name, :inserted_at])
 
@@ -168,70 +169,7 @@ defmodule Networth.Web.Serializer do
   """
   def validation_errors(errors) do
     Map.new(errors, fn {field, %{code: code} = error} ->
-      {field, error |> Map.put(:message, message(code, error))}
+      {field, Map.put(error, :message, ErrorMessages.text(code, error))}
     end)
   end
-
-  defp message(:required, _), do: "is required"
-  defp message(:blank, _), do: "can't be blank"
-  defp message(:too_long, %{max: max}), do: "is too long (max #{max})"
-  defp message(:not_string, _), do: "must be a string"
-  defp message(:not_list, _), do: "must be a list"
-  defp message(:not_boolean, _), do: "must be a boolean"
-
-  defp message(:invalid_choice, %{allowed: allowed}),
-    do: "must be one of: #{Enum.join(allowed, ", ")}"
-
-  defp message(:invalid_id, _), do: "must be a UUID"
-  defp message(:invalid_uuid_v7, _), do: "must be a UUIDv7"
-  defp message(:invalid_date, _), do: "must be an ISO 8601 date"
-  defp message(:invalid_month, _), do: "must be YYYY-MM"
-
-  defp message(:out_of_range, %{min: min, max: max}),
-    do: "must be an integer between #{min} and #{max}"
-
-  defp message(:invalid_amount, _), do: "must be a decimal string, e.g. \"12.50\""
-
-  defp message(:too_many_decimals, %{currency: c, decimals: d}),
-    do: "#{c} allows at most #{d} decimal places"
-
-  defp message(:not_positive, _), do: "must be greater than zero"
-  defp message(:negative, _), do: "must not be negative"
-  defp message(:too_large, _), do: "is too large"
-  defp message(:unsupported_currency, _), do: "is not a supported currency"
-  defp message(:invalid_email, _), do: "is not a valid email"
-
-  defp message(:invalid_length, %{min: min, max: max}),
-    do: "must be #{min} to #{max} characters long"
-
-  defp message(:invalid_timezone, _), do: "is not a known IANA time zone"
-  defp message(:invalid_color, _), do: "must be a hex color like #1a2b3c"
-  defp message(:invalid_count, %{min: min, max: max}), do: "must contain #{min} to #{max} items"
-  defp message(:invalid_cursor, _), do: "is invalid"
-  defp message(:not_found, _), do: "does not exist"
-  defp message(:archived, _), do: "is archived"
-  defp message(:already_exists, _), do: "already exists"
-  defp message(:already_invited, _), do: "already has a pending invitation"
-  defp message(:already_member, _), do: "is already a member"
-  defp message(:wrong_kind, %{expected: kind}), do: "must be an #{kind} category"
-  defp message(:not_top_level, _), do: "must be a top-level category"
-  defp message(:parent_kind_mismatch, _), do: "must match the parent category"
-  defp message(:same_account, _), do: "must differ from from_account_id"
-  defp message(:currency_mismatch, _), do: "has a different currency; use an exchange"
-  defp message(:same_currency, _), do: "has the same currency; use a transfer"
-
-  defp message(:conflicting_fields, %{fields: fields}),
-    do: "cannot be combined with #{Enum.join(fields, ", ")}"
-
-  defp message(:requires_fee, _), do: "requires a fee"
-  defp message(:immutable, _), do: "cannot be changed; correct the transaction instead"
-  defp message(:not_reversible, _), do: "a reversal cannot be reversed"
-
-  defp message(:not_correctable, _),
-    do: "only expense, income, transfer and exchange can be corrected"
-
-  defp message(:before_from, _), do: "must not be before from"
-  defp message(:confirmation_mismatch, _), do: "must match the workspace name"
-  # A code without its own text still gets a readable message rather than a crash.
-  defp message(code, _), do: code |> to_string() |> String.replace("_", " ")
 end

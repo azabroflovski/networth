@@ -30,7 +30,7 @@
 - HTTP тонкий: маршрут вызывает доменную функцию и отправляет результат (`Web.Response`: `send_result`, `send_list`, `send_page`, `send_empty`, `send_error`; форма данных — `Web.Serializer`). Правил в роутерах нет. Маршрут внутри workspace — в `Web.WorkspaceRouter`, `scope` берётся из `conn.assigns`. Любой путь требует токен, кроме явного списка публичных в `Web.Auth`; новая доменная ошибка — новый статус в `Web.Response.send_error/2`.
 - Данные workspace — только через `%Scope{}` из `Workspaces.authorize/2`; каждый запрос фильтрует по `scope.workspace_id`.
 - Внешний ввод — map со строковыми ключами, проверка через `Networth.Params`. Результаты: `{:ok, v}`, `:ok`, `{:error, {:invalid, %{"field" => %{code: :atom, ...детали}}}}`, `{:error, :not_found | :forbidden | ...}`.
-- Ошибка валидации в ядре — код и детали (`Params.invalid(field, :too_long, %{max: 100})`), без текста. Текст — только в HTTP-слое (`Web.Serializer`); новый код — новая строка там. Независимые поля проверяются вместе через `Params.all/1`, чтобы клиент получил все ошибки сразу.
+- Ошибка валидации в ядре — код и детали (`Params.invalid(field, :too_long, %{max: 100})`), без текста. Текст — только в HTTP-слое: словарь `Web.ErrorMessages`; новый код — новая строка там. Независимые поля проверяются вместе через `Params.all/1`, чтобы клиент получил все ошибки сразу.
 - Явный SQL через `Networth.DB`; запись нескольких строк — внутри `DB.transaction/1`.
 - Деньги — integer минимальных единиц, наружу — десятичные строки. Float нигде.
 - Id — UUIDv7, в коде строки.

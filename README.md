@@ -134,7 +134,8 @@ lib/networth/
     workspace_router.ex  всё внутри /api/workspaces/:wid; scope из conn.assigns
     auth.ex              plug-и: пользователь по токену (кроме публичных путей), членство → scope
     response.ex          отправка JSON, результаты и ошибки ядра → статусы HTTP
-    serializer.ex        форма данных в ответах и сообщения ошибок валидации
+    serializer.ex        форма данных в ответах, включая ошибки валидации
+    error_messages.ex    словарь: код ошибки валидации → английский текст
 ```
 
 Доменные функции принимают `%Scope{}` (его выдаёт только `Workspaces.authorize/2`) и map параметров со строковыми ключами и возвращают `{:ok, value}`, `:ok` или `{:error, reason}`. Маршрут только вызывает домен и отправляет результат; токен и членство проверяют plug-и (`Web.Auth`), статусы задаёт `Web.Response`:
@@ -159,7 +160,7 @@ lib/networth/
 }}
 ```
 
-Коды — в `Networth.Web.Serializer.validation_errors/1`.
+Тексты по кодам — в `Networth.Web.ErrorMessages`.
 
 JSON. Все id — UUID-строки, суммы — десятичные строки. Кроме регистрации, входа и валют нужен `Authorization: Bearer <token>`.
 
