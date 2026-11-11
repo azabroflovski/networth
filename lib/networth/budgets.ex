@@ -10,12 +10,14 @@ defmodule Networth.Budgets do
   """
 
   alias Networth.{Activity, Categories, DB, Money, Params, Reports, Scope, Workspaces}
+  alias Networth.Budgets.Budget
 
   @doc "All limits with their history, newest month first."
   def list(%Scope{} = scope) do
     DB.all(
       "SELECT * FROM budgets WHERE workspace_id = $1 ORDER BY category_id, currency, starts_on DESC",
-      [scope.workspace_id]
+      [scope.workspace_id],
+      Budget
     )
   end
 
@@ -52,7 +54,8 @@ defmodule Networth.Budgets do
             DO UPDATE SET amount = EXCLUDED.amount, updated_by = EXCLUDED.updated_by, updated_at = now()
             RETURNING *
             """,
-            [scope.workspace_id, category_id, currency, month, amount, scope.user_id]
+            [scope.workspace_id, category_id, currency, month, amount, scope.user_id],
+            Budget
           )
 
         {:ok, category} = Categories.get(scope, category_id)

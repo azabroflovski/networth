@@ -6,6 +6,7 @@ defmodule Networth.Workspaces.Members do
   """
 
   alias Networth.{Activity, DB, Params, Scope}
+  alias Networth.Workspaces.Member
 
   @member_select """
   SELECT u.id AS user_id, u.email, u.name, m.role, m.inserted_at
@@ -13,9 +14,11 @@ defmodule Networth.Workspaces.Members do
   """
 
   def list_members(%Scope{} = scope) do
-    DB.all(@member_select <> " WHERE m.workspace_id = $1 ORDER BY m.inserted_at, u.id", [
-      scope.workspace_id
-    ])
+    DB.all(
+      @member_select <> " WHERE m.workspace_id = $1 ORDER BY m.inserted_at, u.id",
+      [scope.workspace_id],
+      Member
+    )
   end
 
   def update_member(%Scope{} = scope, user_id, params) do
@@ -78,10 +81,11 @@ defmodule Networth.Workspaces.Members do
   end
 
   defp member_details(scope, user_id) do
-    DB.one(@member_select <> " WHERE m.workspace_id = $1 AND m.user_id = $2", [
-      scope.workspace_id,
-      user_id
-    ])
+    DB.one(
+      @member_select <> " WHERE m.workspace_id = $1 AND m.user_id = $2",
+      [scope.workspace_id, user_id],
+      Member
+    )
   end
 
   # Membership changes lock the workspace row so that concurrent changes are

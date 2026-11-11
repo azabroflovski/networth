@@ -5,18 +5,24 @@ defmodule Networth.Tags do
   """
 
   alias Networth.{Activity, DB, Params, Scope}
+  alias Networth.Tags.Tag
 
   def list(%Scope{} = scope) do
-    DB.all("SELECT * FROM tags WHERE workspace_id = $1 ORDER BY lower(name)", [scope.workspace_id])
+    DB.all(
+      "SELECT * FROM tags WHERE workspace_id = $1 ORDER BY lower(name)",
+      [scope.workspace_id],
+      Tag
+    )
   end
 
   def get(%Scope{} = scope, id) do
     with id when is_binary(id) <- Params.cast_id(id),
          %{} = tag <-
-           DB.one("SELECT * FROM tags WHERE id = $1 AND workspace_id = $2", [
-             id,
-             scope.workspace_id
-           ]) do
+           DB.one(
+             "SELECT * FROM tags WHERE id = $1 AND workspace_id = $2",
+             [id, scope.workspace_id],
+             Tag
+           ) do
       {:ok, tag}
     else
       _ -> {:error, :not_found}
@@ -118,7 +124,7 @@ defmodule Networth.Tags do
     end
   end
 
-  defp handle_write({:ok, result}), do: {:ok, result |> DB.to_maps() |> hd()}
+  defp handle_write({:ok, result}), do: {:ok, struct!(Tag, result |> DB.to_maps() |> hd())}
 
   defp handle_write({:error, error}) do
     case DB.constraint_violation(error) do

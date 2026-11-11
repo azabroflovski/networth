@@ -7,6 +7,7 @@ defmodule Networth.Users do
   """
 
   alias Networth.{DB, Params, RateLimit, Workspaces}
+  alias Networth.Users.User
 
   @user_columns "id, email, name, inserted_at"
 
@@ -38,7 +39,7 @@ defmodule Networth.Users do
 
     case DB.query(sql, [email, name, hash_password(password)]) do
       {:ok, result} ->
-        result |> DB.to_maps() |> hd()
+        struct!(User, result |> DB.to_maps() |> hd())
 
       {:error, error} ->
         case DB.constraint_violation(error) do
@@ -51,7 +52,7 @@ defmodule Networth.Users do
     end
   end
 
-  def get(id), do: DB.one("SELECT #{@user_columns} FROM users WHERE id = $1", [id])
+  def get(id), do: DB.one("SELECT #{@user_columns} FROM users WHERE id = $1", [id], User)
 
   @doc """
   Password login with brute-force protection: too many failed attempts for
@@ -92,7 +93,7 @@ defmodule Networth.Users do
 
     cond do
       row && verify_password(password, row.password_hash) ->
-        {:ok, Map.delete(row, :password_hash)}
+        {:ok, struct!(User, Map.delete(row, :password_hash))}
 
       row ->
         {:error, :invalid_credentials}
@@ -126,7 +127,8 @@ defmodule Networth.Users do
       FROM user_tokens t JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = $1 AND t.expires_at > now()
       """,
-      [token_hash(token)]
+      [token_hash(token)],
+      User
     )
   end
 

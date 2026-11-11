@@ -13,6 +13,7 @@ defmodule Networth.Accounts do
   """
 
   alias Networth.{Activity, DB, Ledger, Money, Params, Scope, Workspaces}
+  alias Networth.Accounts.Account
 
   @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
@@ -57,17 +58,19 @@ defmodule Networth.Accounts do
     DB.all(
       sql <>
         " WHERE a.workspace_id = $1 AND NOT a.system ORDER BY a.archived_at NULLS FIRST, a.id",
-      args
+      args,
+      Account
     )
   end
 
   def get(%Scope{} = scope, id) do
     with id when is_binary(id) <- Params.cast_id(id),
          %{} = account <-
-           DB.one(select() <> " WHERE a.id = $1 AND a.workspace_id = $2 AND NOT a.system", [
-             id,
-             scope.workspace_id
-           ]) do
+           DB.one(
+             select() <> " WHERE a.id = $1 AND a.workspace_id = $2 AND NOT a.system",
+             [id, scope.workspace_id],
+             Account
+           ) do
       {:ok, account}
     else
       _ -> {:error, :not_found}
@@ -196,7 +199,8 @@ defmodule Networth.Accounts do
         WHERE id = $1 AND workspace_id = $2 AND NOT system
         FOR SHARE
         """,
-        [id, scope.workspace_id]
+        [id, scope.workspace_id],
+        Account
       )
 
     cond do
@@ -219,7 +223,8 @@ defmodule Networth.Accounts do
 
     DB.one(
       "SELECT id, name, type, kind, currency FROM accounts WHERE workspace_id = $1 AND type = $2 AND currency = $3 AND system",
-      [workspace_id, type, currency]
+      [workspace_id, type, currency],
+      Account
     )
   end
 

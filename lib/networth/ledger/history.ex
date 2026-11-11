@@ -2,7 +2,7 @@ defmodule Networth.Ledger.History do
   @moduledoc "Reading transactions: one by id, a filtered page, and the snapshot for the activity log."
 
   alias Networth.{DB, Money, Params, Scope}
-  alias Networth.Ledger.Posting
+  alias Networth.Ledger.{Entry, Exchange, Posting, Transaction}
 
   @select """
   SELECT t.id, t.workspace_id, t.type, t.occurred_on, t.description, t.reverses_id, t.replaces_id,
@@ -14,7 +14,11 @@ defmodule Networth.Ledger.History do
   def get(%Scope{} = scope, id) do
     with id when is_binary(id) <- Params.cast_id(id),
          %{} = transaction <-
-           DB.one(@select <> " WHERE t.id = $1 AND t.workspace_id = $2", [id, scope.workspace_id]) do
+           DB.one(
+             @select <> " WHERE t.id = $1 AND t.workspace_id = $2",
+             [id, scope.workspace_id],
+             Transaction
+           ) do
       {:ok, transaction |> List.wrap() |> preload() |> hd()}
     else
       _ -> {:error, :not_found}
@@ -71,7 +75,7 @@ defmodule Networth.Ledger.History do
           " ORDER BY t.occurred_on DESC, t.id DESC LIMIT $#{length(args) + 1}"
 
       # One extra row tells whether there is a next page.
-      {page, rest} = sql |> DB.all(args ++ [f.limit + 1]) |> Enum.split(f.limit)
+      {page, rest} = sql |> DB.all(args ++ [f.limit + 1], Transaction) |> Enum.split(f.limit)
       next_cursor = if rest != [], do: encode_cursor(List.last(page))
 
       {:ok, %{transactions: preload(page), next_cursor: next_cursor}}
@@ -109,7 +113,7 @@ defmodule Networth.Ledger.History do
         """,
         [ids]
       )
-      |> Enum.group_by(& &1.transaction_id, &Map.delete(&1, :transaction_id))
+      |> Enum.group_by(& &1.transaction_id, &struct!(Entry, Map.delete(&1, :transaction_id)))
 
     tags =
       DB.all(
@@ -120,7 +124,9 @@ defmodule Networth.Ledger.History do
 
     exchanges =
       DB.all("SELECT * FROM exchanges WHERE transaction_id = ANY($1)", [ids])
-      |> Map.new(&{&1.transaction_id, Map.drop(&1, [:transaction_id, :workspace_id])})
+      |> Map.new(
+        &{&1.transaction_id, struct!(Exchange, Map.drop(&1, [:transaction_id, :workspace_id]))}
+      )
 
     Enum.map(transactions, fn t ->
       Map.merge(t, %{

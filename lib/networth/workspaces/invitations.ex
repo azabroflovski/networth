@@ -5,6 +5,7 @@ defmodule Networth.Workspaces.Invitations do
   """
 
   alias Networth.{Activity, DB, Params, Scope, Users, Workspaces}
+  alias Networth.Workspaces.Invitation
 
   def invite(%Scope{} = scope, params) do
     with :ok <- Scope.require_owner(scope),
@@ -18,7 +19,7 @@ defmodule Networth.Workspaces.Invitations do
              [scope.workspace_id, email, scope.user_id]
            ) do
         {:ok, result} ->
-          invitation = result |> DB.to_maps() |> hd()
+          invitation = struct!(Invitation, result |> DB.to_maps() |> hd())
 
           Activity.record(scope, "invitation.created", "invitation", invitation.id,
             data: %{"email" => email}
@@ -56,7 +57,8 @@ defmodule Networth.Workspaces.Invitations do
       {:ok,
        DB.all(
          "SELECT * FROM workspace_invitations WHERE workspace_id = $1 AND accepted_at IS NULL ORDER BY id",
-         [scope.workspace_id]
+         [scope.workspace_id],
+         Invitation
        )}
     end
   end
@@ -101,7 +103,8 @@ defmodule Networth.Workspaces.Invitations do
       WHERE i.email = $1 AND i.accepted_at IS NULL
       ORDER BY i.id
       """,
-      [user.email]
+      [user.email],
+      Invitation
     )
   end
 
@@ -115,7 +118,8 @@ defmodule Networth.Workspaces.Invitations do
             WHERE id = $1 AND email = $2 AND accepted_at IS NULL
             FOR UPDATE
             """,
-            [id, user.email]
+            [id, user.email],
+            Invitation
           ) || DB.rollback(:not_found)
 
         DB.query!(

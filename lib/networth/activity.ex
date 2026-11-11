@@ -14,6 +14,7 @@ defmodule Networth.Activity do
   """
 
   alias Networth.{DB, Params, Scope}
+  alias Networth.Activity.Event
 
   def record(%Scope{} = scope, action, subject_type, subject_id, opts \\ []) do
     DB.query!(
@@ -69,7 +70,8 @@ defmodule Networth.Activity do
           WHERE #{Enum.join(conditions, " AND ")}
           ORDER BY e.id DESC LIMIT $#{length(args) + 1}
           """,
-          args ++ [limit + 1]
+          args ++ [limit + 1],
+          Event
         )
 
       {page, rest} = Enum.split(events, limit)

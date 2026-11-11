@@ -2,6 +2,7 @@ defmodule Networth.Ledger.Adjustment do
   @moduledoc "Reconciling an account with its real balance through an `adjustment`."
 
   alias Networth.{Accounts, Activity, DB, Money, Params, Scope, Workspaces}
+  alias Networth.Accounts.Account
   alias Networth.Ledger.Posting
 
   def adjust_balance(%Scope{} = scope, account_id, params) do
@@ -20,7 +21,8 @@ defmodule Networth.Ledger.Adjustment do
             SELECT id, name, type, kind, currency, archived_at FROM accounts
             WHERE id = $1 AND workspace_id = $2 AND NOT system FOR UPDATE
             """,
-            [id, scope.workspace_id]
+            [id, scope.workspace_id],
+            Account
           ) || DB.rollback(:not_found)
 
         if account.archived_at, do: DB.rollback({:invalid, %{"account_id" => %{code: :archived}}})

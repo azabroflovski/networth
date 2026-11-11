@@ -128,6 +128,9 @@ lib/networth/
     invitations.ex   приглашения
     deletion.ex      отложенное удаление и очистка
   accounts.ex        счета, системные счета, балансы
+  accounts/account.ex                  структура счёта (у каждого контекста своя: users/user.ex,
+                                       workspaces/{workspace,member,invitation}.ex, categories/category.ex,
+                                       tags/tag.ex, budgets/budget.ex, activity/event.ex)
   ledger.ex          публичный API ledger
   ledger/
     posting.ex       проведение: параметры, проводки, запись, идемпотентность
@@ -136,6 +139,7 @@ lib/networth/
     adjustment.ex    сверка баланса
     editing.ex       описание и теги проведённой операции
     history.ex       чтение: get, list, курсор, снимок для журнала
+    transaction.ex, entry.ex, exchange.ex   структуры операции, проводки, обмена
   activity.ex        журнал активности workspace
   reports.ex         отчёты (только чтение)
   budgets.ex         бюджеты: лимиты и отчёт исполнения

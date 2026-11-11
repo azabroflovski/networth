@@ -58,11 +58,18 @@ defmodule Networth.DB do
 
   def query!(sql, params \\ []), do: Postgrex.query!(conn(), sql, params)
 
-  @doc "Runs a query and returns rows as maps with atom keys."
-  def all(sql, params \\ []), do: sql |> query!(params) |> to_maps()
+  @doc """
+  Runs a query and returns rows as maps with atom keys, or as `struct`
+  when given. `struct!/2` raises on a column the struct does not have, so
+  a query and its struct cannot drift apart unnoticed.
+  """
+  def all(sql, params \\ [], struct \\ nil) do
+    rows = sql |> query!(params) |> to_maps()
+    if struct, do: Enum.map(rows, &struct!(struct, &1)), else: rows
+  end
 
-  def one(sql, params \\ []) do
-    case all(sql, params) do
+  def one(sql, params \\ [], struct \\ nil) do
+    case all(sql, params, struct) do
       [] -> nil
       [row] -> row
       rows -> raise "expected at most one row, got #{length(rows)}"

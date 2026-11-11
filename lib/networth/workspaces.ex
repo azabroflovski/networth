@@ -9,7 +9,7 @@ defmodule Networth.Workspaces do
   """
 
   alias Networth.{Activity, Categories, DB, Params, Scope}
-  alias Networth.Workspaces.{Deletion, Invitations, Members}
+  alias Networth.Workspaces.{Deletion, Invitations, Members, Workspace}
 
   @doc "Creates a workspace owned by `user_id`, seeded with default categories."
   def create(user_id, params) do
@@ -20,10 +20,11 @@ defmodule Networth.Workspaces do
            ) do
       DB.transaction(fn ->
         workspace =
-          DB.one("INSERT INTO workspaces (name, timezone) VALUES ($1, $2) RETURNING *", [
-            name,
-            timezone
-          ])
+          DB.one(
+            "INSERT INTO workspaces (name, timezone) VALUES ($1, $2) RETURNING *",
+            [name, timezone],
+            Workspace
+          )
 
         DB.query!(
           "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
@@ -66,13 +67,14 @@ defmodule Networth.Workspaces do
       WHERE m.user_id = $1
       ORDER BY w.id
       """,
-      [user_id]
+      [user_id],
+      Workspace
     )
   end
 
   def get(%Scope{} = scope) do
     "SELECT * FROM workspaces WHERE id = $1"
-    |> DB.one([scope.workspace_id])
+    |> DB.one([scope.workspace_id], Workspace)
     |> Map.put(:role, scope.role)
   end
 

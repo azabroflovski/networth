@@ -6,6 +6,7 @@ defmodule Networth.Categories do
   """
 
   alias Networth.{Activity, DB, Params, Scope}
+  alias Networth.Categories.Category
 
   @defaults [
     {"expense", ~w(Food Transport Housing Health Entertainment Shopping Travel)},
@@ -30,17 +31,19 @@ defmodule Networth.Categories do
   def list(%Scope{} = scope) do
     DB.all(
       "SELECT * FROM categories WHERE workspace_id = $1 ORDER BY kind, coalesce(parent_id, id), parent_id NULLS FIRST, name",
-      [scope.workspace_id]
+      [scope.workspace_id],
+      Category
     )
   end
 
   def get(%Scope{} = scope, id) do
     with id when is_binary(id) <- Params.cast_id(id),
          %{} = category <-
-           DB.one("SELECT * FROM categories WHERE id = $1 AND workspace_id = $2", [
-             id,
-             scope.workspace_id
-           ]) do
+           DB.one(
+             "SELECT * FROM categories WHERE id = $1 AND workspace_id = $2",
+             [id, scope.workspace_id],
+             Category
+           ) do
       {:ok, category}
     else
       _ -> {:error, :not_found}
@@ -132,7 +135,7 @@ defmodule Networth.Categories do
     end
   end
 
-  defp handle_write({:ok, result}), do: {:ok, result |> DB.to_maps() |> hd()}
+  defp handle_write({:ok, result}), do: {:ok, struct!(Category, result |> DB.to_maps() |> hd())}
 
   defp handle_write({:error, error}) do
     case DB.constraint_violation(error) do
