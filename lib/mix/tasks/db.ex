@@ -56,3 +56,18 @@ defmodule Mix.Tasks.Db.Drop do
     Networth.DB.Migrator.drop_database()
   end
 end
+
+defmodule Mix.Tasks.Db.Seed do
+  @shortdoc "Fills the database with demo data"
+  @moduledoc "Runs priv/seeds.exs: demo users and workspaces for development. Safe to run again."
+  use Mix.Task
+
+  @impl true
+  def run(_args) do
+    Mix.Task.run("app.config")
+    # Seeding needs the database, not the HTTP server.
+    Application.put_env(:networth, :server, false)
+    Mix.Task.run("app.start")
+    Code.eval_file(Application.app_dir(:networth, "priv/seeds.exs"))
+  end
+end

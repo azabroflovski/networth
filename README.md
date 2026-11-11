@@ -36,6 +36,7 @@ docker compose up -d --wait
 ```sh
 mix deps.get
 mix db.setup          # создать БД networth_dev и применить миграции
+mix db.seed          # демо-данные: demo@networth.local / demo-password (необязательно)
 mix run --no-halt     # API на http://localhost:4000
 ```
 
@@ -69,6 +70,7 @@ curl -s -XPOST localhost:4000/api/workspaces/$WORKSPACE_ID/accounts \
 | `mix db.setup` | `db.create` + `db.migrate` |
 | `mix db.drop` | удаляет БД (запрещено в prod) |
 | `mix db.reset` | `db.drop` + `db.setup` |
+| `mix db.seed` | демо-данные из `priv/seeds.exs` через функции ядра; повторный запуск ничего не меняет |
 | `mix test` | создаёт и мигрирует тестовую БД, запускает тесты |
 
 Тесты с БД выполняются последовательно и очищают таблицы перед каждым тестом.
