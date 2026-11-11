@@ -16,16 +16,23 @@ defmodule Networth.DataCase do
   end
 
   setup do
-    DB.query!("""
-    TRUNCATE users, user_tokens, workspaces, workspace_members, workspace_invitations,
-      accounts, categories, tags, transactions, ledger_entries, exchanges, transaction_tags,
-      activity_log, budgets
-    RESTART IDENTITY CASCADE
-    """)
-
-    Networth.RateLimit.reset_all()
-
+    reset_database()
     :ok
+  end
+
+  @doc """
+  Empties every table except reference data. The list comes from the
+  database, so a new table is cleaned without touching this code.
+  """
+  def reset_database do
+    %{tables: tables} =
+      DB.one("""
+      SELECT string_agg(quote_ident(tablename), ', ') AS tables FROM pg_tables
+      WHERE schemaname = 'public' AND tablename NOT IN ('currencies', 'schema_migrations')
+      """)
+
+    DB.query!("TRUNCATE #{tables} RESTART IDENTITY CASCADE")
+    Networth.RateLimit.reset_all()
   end
 
   @doc "Registers a user and returns the user, their personal workspace and its scope."
