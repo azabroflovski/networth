@@ -1,0 +1,12 @@
+_build
+deps
+.git
+.github
+.elixir_ls
+cover
+doc
+docs
+test
+tmp
+*.md
+erl_crash.dump

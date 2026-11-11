@@ -86,6 +86,16 @@ _build/prod/rel/networth/bin/networth eval "Networth.Release.migrate()"   # пр
 _build/prod/rel/networth/bin/networth start                                # или daemon / stop
 ```
 
+Или Docker-образом (`Dockerfile`, Debian slim, ~200 МБ):
+
+```sh
+docker build -t networth .
+docker run --rm -e DATABASE_URL=... networth bin/networth eval "Networth.Release.migrate()"
+docker run -p 4000:4000 -e DATABASE_URL=... networth
+```
+
+Каждый запрос пишется в лог с `request_id`, тот же id возвращается в заголовке `x-request-id`.
+
 В prod `DATABASE_URL` обязательна, HTTP-сервер включён всегда. `GET /health` проверяет соединение с БД: 200 `{"status":"ok"}` или 503 (при недоступной БД ответ приходит через ~5 с — таймаут ожидания соединения в пуле). Релиз собирается под ту же ОС и архитектуру, где будет запущен.
 
 ## Миграции
