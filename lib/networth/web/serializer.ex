@@ -1,4 +1,4 @@
-defmodule Networth.Web.JSON do
+defmodule Networth.Web.Serializer do
   @moduledoc """
   Shapes domain data for API responses. Money amounts are rendered as
   decimal strings in major units together with their currency.

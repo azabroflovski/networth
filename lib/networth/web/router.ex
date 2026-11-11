@@ -14,7 +14,7 @@ defmodule Networth.Web.Router do
   import Networth.Web.{Auth, Response}
 
   alias Networth.{Currencies, DB, Users, Workspaces}
-  alias Networth.Web.JSON, as: View
+  alias Networth.Web.Serializer
 
   plug :match
   plug Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason
@@ -26,41 +26,41 @@ defmodule Networth.Web.Router do
 
   get "/health" do
     case DB.ping() do
-      :ok -> json(conn, 200, %{status: "ok"})
-      :error -> json(conn, 503, %{status: "database_unavailable"})
+      :ok -> send_json(conn, 200, %{status: "ok"})
+      :error -> send_json(conn, 503, %{status: "database_unavailable"})
     end
   end
 
   get "/api/currencies" do
-    render_list(conn, Currencies.list(), :currencies, &View.currency/1)
+    send_list(conn, Currencies.list(), :currencies, &Serializer.currency/1)
   end
 
   post "/api/register" do
     case Users.register(conn.body_params) do
       {:ok, %{user: user, workspace: workspace, token: token}} ->
-        json(conn, 201, %{
-          user: View.user(user),
-          workspace: View.workspace(workspace),
+        send_json(conn, 201, %{
+          user: Serializer.user(user),
+          workspace: Serializer.workspace(workspace),
           token: token
         })
 
       error ->
-        error(conn, error)
+        send_error(conn, error)
     end
   end
 
   post "/api/login" do
     case Users.login(conn.body_params["email"], conn.body_params["password"], conn.remote_ip) do
       {:ok, user, token} ->
-        json(conn, 200, %{user: View.user(user), token: token})
+        send_json(conn, 200, %{user: Serializer.user(user), token: token})
 
       {:error, {:rate_limited, retry_after}} ->
         conn
         |> put_resp_header("retry-after", Integer.to_string(retry_after))
-        |> json(429, %{error: "too_many_attempts"})
+        |> send_json(429, %{error: "too_many_attempts"})
 
       error ->
-        error(conn, error)
+        send_error(conn, error)
     end
   end
 
@@ -74,40 +74,40 @@ defmodule Networth.Web.Router do
   get "/api/me" do
     user = conn.assigns.current_user
 
-    json(conn, 200, %{
-      user: View.user(user),
-      workspaces: Enum.map(Workspaces.list_for_user(user.id), &View.workspace/1)
+    send_json(conn, 200, %{
+      user: Serializer.user(user),
+      workspaces: Enum.map(Workspaces.list_for_user(user.id), &Serializer.workspace/1)
     })
   end
 
   get "/api/workspaces" do
-    render_list(
+    send_list(
       conn,
       Workspaces.list_for_user(conn.assigns.current_user.id),
       :workspaces,
-      &View.workspace/1
+      &Serializer.workspace/1
     )
   end
 
   post "/api/workspaces" do
     result = Workspaces.create(conn.assigns.current_user.id, conn.body_params)
-    render(conn, result, :workspace, &View.workspace/1, 201)
+    send_result(conn, result, :workspace, &Serializer.workspace/1, 201)
   end
 
   get "/api/invitations" do
     invitations = Workspaces.pending_invitations(conn.assigns.current_user)
-    render_list(conn, invitations, :invitations, &View.invitation/1)
+    send_list(conn, invitations, :invitations, &Serializer.invitation/1)
   end
 
   post "/api/invitations/:id/accept" do
     result = Workspaces.accept_invitation(conn.assigns.current_user, id)
-    render(conn, result, :workspace, &View.workspace/1)
+    send_result(conn, result, :workspace, &Serializer.workspace/1)
   end
 
   forward "/api/workspaces/:wid", to: Networth.Web.WorkspaceRouter
 
   match _ do
-    json(conn, 404, %{error: "not_found"})
+    send_json(conn, 404, %{error: "not_found"})
   end
 
   @impl Plug.ErrorHandler
@@ -119,6 +119,6 @@ defmodule Networth.Web.Router do
         _ -> {conn.status, "internal_error"}
       end
 
-    json(conn, status, %{error: error})
+    send_json(conn, status, %{error: error})
   end
 end

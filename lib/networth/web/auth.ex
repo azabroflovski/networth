@@ -9,7 +9,7 @@ defmodule Networth.Web.Auth do
   """
 
   import Plug.Conn
-  import Networth.Web.Response, only: [error: 2]
+  import Networth.Web.Response, only: [send_error: 2]
 
   alias Networth.{Users, Workspaces}
 
@@ -22,14 +22,14 @@ defmodule Networth.Web.Auth do
          %{} = user <- Users.get_by_token(token) do
       conn |> assign(:current_user, user) |> assign(:token, token)
     else
-      _ -> conn |> error({:error, :unauthorized}) |> halt()
+      _ -> conn |> send_error({:error, :unauthorized}) |> halt()
     end
   end
 
   def authorize_workspace(conn, _opts) do
     case Workspaces.authorize(conn.assigns.current_user.id, conn.path_params["wid"]) do
       {:ok, scope} -> assign(conn, :scope, scope)
-      error -> conn |> error(error) |> halt()
+      error -> conn |> send_error(error) |> halt()
     end
   end
 
