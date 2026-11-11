@@ -311,7 +311,7 @@ defmodule Networth.Ledger.Posting do
   def post_opening_balance(%Scope{} = scope, account, amount, occurred_on) do
     DB.transaction(fn ->
       equity = Accounts.system_account(scope.workspace_id, "opening_balance", account.currency)
-      debit = if account.kind == "asset", do: amount, else: -amount
+      debit = Accounts.sign(account.kind) * amount
 
       insert(scope, %{
         type: "opening_balance",

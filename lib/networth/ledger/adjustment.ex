@@ -31,7 +31,7 @@ defmodule Networth.Ledger.Adjustment do
             {:error, reason} -> DB.rollback(reason)
           end
 
-        sign = if account.kind == "asset", do: 1, else: -1
+        sign = Accounts.sign(account.kind)
 
         %{sum: sum} =
           DB.one(

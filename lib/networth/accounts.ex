@@ -16,29 +16,55 @@ defmodule Networth.Accounts do
 
   @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
-  @select """
-  SELECT a.id, a.workspace_id, a.name, a.type, a.kind, a.currency, a.archived_at, a.inserted_at,
-    (CASE WHEN a.kind IN ('asset', 'expense') THEN 1 ELSE -1 END)
-      * coalesce((SELECT sum(e.amount) FROM ledger_entries e WHERE e.account_id = a.id), 0)::bigint AS balance
-  FROM accounts a
+  # Debit-normal kinds: their balance is the sum of their entries; for the
+  # other kinds it is the negated sum (what is owed, earned or invested).
+  @debit_normal ~w(asset expense)
+
+  @doc """
+  The sign that turns the sum of an account's entries into its balance in
+  the natural sign: money held for assets, money owed for liabilities.
+  Also the sign of a debit that increases the balance.
   """
+  def sign(kind) when kind in @debit_normal, do: 1
+  def sign(_kind), do: -1
+
+  # With `on` (a placeholder), only operations dated up to that day count.
+  defp select(on \\ nil) do
+    entries =
+      if on,
+        do:
+          "ledger_entries e JOIN transactions t ON t.id = e.transaction_id WHERE e.account_id = a.id AND t.occurred_on <= #{on}",
+        else: "ledger_entries e WHERE e.account_id = a.id"
+
+    """
+    SELECT a.id, a.workspace_id, a.name, a.type, a.kind, a.currency, a.archived_at, a.inserted_at,
+      (CASE WHEN a.kind IN (#{Enum.map_join(@debit_normal, ", ", &"'#{&1}'")}) THEN 1 ELSE -1 END)
+        * coalesce((SELECT sum(e.amount) FROM #{entries}), 0)::bigint AS balance
+    FROM accounts a
+    """
+  end
 
   def types, do: @user_types
 
-  def list(%Scope{} = scope) do
+  @doc "User accounts with their balances; with `on: date`, balances at the end of that day."
+  def list(%Scope{} = scope, opts \\ []) do
+    {sql, args} =
+      case opts[:on] do
+        nil -> {select(), [scope.workspace_id]}
+        on -> {select("$2"), [scope.workspace_id, on]}
+      end
+
     DB.all(
-      @select <>
+      sql <>
         " WHERE a.workspace_id = $1 AND NOT a.system ORDER BY a.archived_at NULLS FIRST, a.id",
-      [
-        scope.workspace_id
-      ]
+      args
     )
   end
 
   def get(%Scope{} = scope, id) do
     with id when is_binary(id) <- Params.cast_id(id),
          %{} = account <-
-           DB.one(@select <> " WHERE a.id = $1 AND a.workspace_id = $2 AND NOT a.system", [
+           DB.one(select() <> " WHERE a.id = $1 AND a.workspace_id = $2 AND NOT a.system", [
              id,
              scope.workspace_id
            ]) do

@@ -87,22 +87,7 @@ defmodule Networth.Reports do
   @doc "Balances of all user accounts at the end of the given date (`on`)."
   def balances(%Scope{} = scope, params) do
     with {:ok, on} <- required_date(params, "on") do
-      accounts =
-        DB.all(
-          """
-          SELECT a.id, a.name, a.type, a.kind, a.currency, a.archived_at, a.inserted_at,
-            (CASE WHEN a.kind = 'asset' THEN 1 ELSE -1 END) * coalesce((
-              SELECT sum(e.amount) FROM ledger_entries e JOIN transactions t ON t.id = e.transaction_id
-              WHERE e.account_id = a.id AND t.occurred_on <= $2
-            ), 0)::bigint AS balance
-          FROM accounts a
-          WHERE a.workspace_id = $1 AND NOT a.system
-          ORDER BY a.archived_at NULLS FIRST, a.id
-          """,
-          [scope.workspace_id, on]
-        )
-
-      {:ok, %{on: on, accounts: accounts}}
+      {:ok, %{on: on, accounts: Accounts.list(scope, on: on)}}
     end
   end
 
@@ -145,7 +130,7 @@ defmodule Networth.Reports do
   def account_activity(%Scope{} = scope, account_id, params) do
     with {:ok, account} <- Accounts.get(scope, account_id),
          {:ok, from, to} <- period(params) do
-      sign = if account.kind == "asset", do: 1, else: -1
+      sign = Accounts.sign(account.kind)
 
       totals =
         DB.one(
