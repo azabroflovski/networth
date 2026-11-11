@@ -1,0 +1,4091 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "networth API",
+    "version": "0.1.0",
+    "description": "Personal finance on a double-entry ledger. Money is a decimal string next to its currency; ids are UUIDs; validation errors carry stable codes. Contract checked against the routers by server/test/networth/web/openapi_test.exs."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Database health",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "database_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "database_unavailable"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/currencies": {
+      "get": {
+        "summary": "Supported currencies",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "currencies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Currency"
+                      }
+                    }
+                  },
+                  "required": [
+                    "currencies"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/register": {
+      "post": {
+        "summary": "Create a user with a personal workspace; returns a token",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "workspace",
+                    "token"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "name",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/login": {
+      "post": {
+        "summary": "Sign in; returns a token",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "token"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "Revoke the current token",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "The signed-in user and their workspaces",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "workspaces": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Workspace"
+                      }
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "workspaces"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "summary": "My workspaces",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspaces": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Workspace"
+                      }
+                    }
+                  },
+                  "required": [
+                    "workspaces"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "summary": "Create a workspace (I become its owner)",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/invitations": {
+      "get": {
+        "summary": "Invitations addressed to me",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Invitation"
+                      }
+                    }
+                  },
+                  "required": [
+                    "invitations"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/invitations/{id}/accept": {
+      "post": {
+        "summary": "Accept an invitation",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ],
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}": {
+      "get": {
+        "summary": "The workspace",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Change name/timezone (owner)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Schedule deletion in 7 days (owner)",
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "description": "Exact workspace name"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/restore": {
+      "post": {
+        "summary": "Cancel a scheduled deletion (owner)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "$ref": "#/components/schemas/Workspace"
+                    }
+                  },
+                  "required": [
+                    "workspace"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/members": {
+      "get": {
+        "summary": "Members",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Member"
+                      }
+                    }
+                  },
+                  "required": [
+                    "members"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/members/{user_id}": {
+      "patch": {
+        "summary": "Change a member's role (owner)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "member": {
+                      "$ref": "#/components/schemas/Member"
+                    }
+                  },
+                  "required": [
+                    "member"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "owner",
+                      "member"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Remove a member (owner) or leave (own id)",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/invitations": {
+      "get": {
+        "summary": "Pending invitations (owner)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Invitation"
+                      }
+                    }
+                  },
+                  "required": [
+                    "invitations"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Invite by email (owner)",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitation": {
+                      "$ref": "#/components/schemas/Invitation"
+                    }
+                  },
+                  "required": [
+                    "invitation"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/invitations/{id}": {
+      "delete": {
+        "summary": "Revoke an invitation (owner)",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/activity": {
+      "get": {
+        "summary": "Activity log, newest first",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ActivityEvent"
+                      }
+                    },
+                    "next_cursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Pass as cursor for the next page"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "next_cursor"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "tags": [
+          "activity"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/accounts": {
+      "get": {
+        "summary": "Accounts with balances",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Account"
+                      }
+                    }
+                  },
+                  "required": [
+                    "accounts"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create an account",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "account": {
+                      "$ref": "#/components/schemas/Account"
+                    }
+                  },
+                  "required": [
+                    "account"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "cash",
+                      "bank",
+                      "card",
+                      "deposit",
+                      "savings",
+                      "receivable",
+                      "credit_card",
+                      "loan",
+                      "payable"
+                    ]
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "opening_balance": {
+                    "$ref": "#/components/schemas/Money",
+                    "description": "Natural sign"
+                  },
+                  "opened_on": {
+                    "$ref": "#/components/schemas/Date"
+                  },
+                  "idempotency_key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "type",
+                  "currency"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/accounts/{id}": {
+      "get": {
+        "summary": "An account",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "account": {
+                      "$ref": "#/components/schemas/Account"
+                    }
+                  },
+                  "required": [
+                    "account"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Rename / archive",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "account": {
+                      "$ref": "#/components/schemas/Account"
+                    }
+                  },
+                  "required": [
+                    "account"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/accounts/{id}/adjust": {
+      "post": {
+        "summary": "Reconcile with the real balance",
+        "responses": {
+          "201": {
+            "description": "Adjustment posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Balances already match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/Money"
+                  },
+                  "occurred_on": {
+                    "$ref": "#/components/schemas/Date"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "balance"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/accounts/{id}/activity": {
+      "get": {
+        "summary": "Opening balance, inflow, outflow, closing balance",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "activity": {
+                      "$ref": "#/components/schemas/AccountActivity"
+                    }
+                  },
+                  "required": [
+                    "activity"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/transactions": {
+      "get": {
+        "summary": "History, newest first; reversed pairs hidden unless include_reversed",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transactions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Transaction"
+                      }
+                    },
+                    "next_cursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Pass as cursor for the next page"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "transactions",
+                    "next_cursor"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "name": "category_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Includes subcategories"
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "expense",
+                "income",
+                "transfer",
+                "exchange",
+                "opening_balance",
+                "adjustment",
+                "reversal"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          },
+          {
+            "name": "include_reversed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "tags": [
+          "transactions"
+        ]
+      },
+      "post": {
+        "summary": "Post an operation",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionInput"
+              }
+            }
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/transactions/{id}": {
+      "get": {
+        "summary": "An operation",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Change the description (money changes: correct)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "description"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete = reverse",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/transactions/{id}/correct": {
+      "post": {
+        "summary": "Reverse and post the new version; date, description, tags default to the original's",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionInput"
+              }
+            }
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/transactions/{id}/reverse": {
+      "post": {
+        "summary": "Reverse; repeating returns the same reversal",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "occurred_on": {
+                    "$ref": "#/components/schemas/Date"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/transactions/{id}/tags": {
+      "put": {
+        "summary": "Replace tags",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  },
+                  "required": [
+                    "transaction"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tag_ids": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Id"
+                    }
+                  }
+                },
+                "required": [
+                  "tag_ids"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "transactions"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/categories": {
+      "get": {
+        "summary": "Categories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "categories": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Category"
+                      }
+                    }
+                  },
+                  "required": [
+                    "categories"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a category (kind) or subcategory (parent_id)",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "category": {
+                      "$ref": "#/components/schemas/Category"
+                    }
+                  },
+                  "required": [
+                    "category"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "expense",
+                      "income"
+                    ]
+                  },
+                  "parent_id": {
+                    "$ref": "#/components/schemas/Id"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/categories/{id}": {
+      "patch": {
+        "summary": "Rename / archive",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "category": {
+                      "$ref": "#/components/schemas/Category"
+                    }
+                  },
+                  "required": [
+                    "category"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/tags": {
+      "get": {
+        "summary": "Tags",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Tag"
+                      }
+                    }
+                  },
+                  "required": [
+                    "tags"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a tag",
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tag": {
+                      "$ref": "#/components/schemas/Tag"
+                    }
+                  },
+                  "required": [
+                    "tag"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/tags/{id}": {
+      "patch": {
+        "summary": "Rename / recolor; color null clears it",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tag": {
+                      "$ref": "#/components/schemas/Tag"
+                    }
+                  },
+                  "required": [
+                    "tag"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete a tag",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "categories"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/budgets": {
+      "get": {
+        "summary": "Limits with their history",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "budgets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Budget"
+                      }
+                    }
+                  },
+                  "required": [
+                    "budgets"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "tags": [
+          "budgets"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      },
+      "put": {
+        "summary": "Set a monthly limit from a month on; amount 0 ends it",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "budget": {
+                      "$ref": "#/components/schemas/Budget"
+                    }
+                  },
+                  "required": [
+                    "budget"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "category_id": {
+                    "$ref": "#/components/schemas/Id"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "$ref": "#/components/schemas/Money"
+                  },
+                  "month": {
+                    "type": "string",
+                    "description": "YYYY-MM, default: current month"
+                  }
+                },
+                "required": [
+                  "category_id",
+                  "currency",
+                  "amount"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "budgets"
+        ],
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/reports/budget": {
+      "get": {
+        "summary": "Limit, spent, remaining, percent",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "report": {
+                      "$ref": "#/components/schemas/BudgetReport"
+                    }
+                  },
+                  "required": [
+                    "report"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "YYYY-MM"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/reports/income-expense": {
+      "get": {
+        "summary": "Income and expenses by category, per currency",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "report": {
+                      "$ref": "#/components/schemas/IncomeExpenseReport"
+                    }
+                  },
+                  "required": [
+                    "report"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/reports/net-worth": {
+      "get": {
+        "summary": "Assets, liabilities, net per currency",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "report": {
+                      "$ref": "#/components/schemas/NetWorthReport"
+                    }
+                  },
+                  "required": [
+                    "report"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "on",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/workspaces/{wid}/reports/balances": {
+      "get": {
+        "summary": "Account balances at the end of a date",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "report": {
+                      "$ref": "#/components/schemas/BalancesReport"
+                    }
+                  },
+                  "required": [
+                    "report"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "parameters": [
+          {
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Workspace id; non-members get 404"
+          },
+          {
+            "name": "on",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Date"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Id": {
+        "type": "string",
+        "description": "UUID",
+        "format": "uuid"
+      },
+      "Money": {
+        "type": "string",
+        "description": "Decimal string in major units of the currency next to it",
+        "pattern": "^-?\\d+(\\.\\d+)?$",
+        "examples": [
+          "1250.50"
+        ]
+      },
+      "Date": {
+        "type": "string",
+        "description": "YYYY-MM-DD",
+        "format": "date"
+      },
+      "DateTime": {
+        "type": "string",
+        "description": "ISO 8601, UTC",
+        "format": "date-time"
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Domain error code: unauthorized, forbidden, not_found, already_reversed, id_taken, last_owner, idempotency_key_reused, rate_limited, invalid_credentials, malformed_json, unsupported_media_type, internal_error"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "FieldError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable code to translate by, e.g. required, too_long, too_many_decimals"
+          },
+          "message": {
+            "type": "string",
+            "description": "English fallback text"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": true,
+        "description": "Plus code-specific details, e.g. max, currency, decimals"
+      },
+      "ValidationError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "const": "invalid"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "description": "Every invalid field at once; nested fields as lines.0.amount"
+          }
+        },
+        "required": [
+          "error",
+          "errors"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "inserted_at"
+        ]
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "deletion_scheduled_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "timezone",
+          "role",
+          "inserted_at"
+        ]
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "name",
+          "role",
+          "inserted_at"
+        ]
+      },
+      "Invitation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "workspace_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "inserted_at"
+        ]
+      },
+      "Currency": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "examples": [
+              "UZS"
+            ]
+          },
+          "exponent": {
+            "type": "integer",
+            "description": "Digits after the decimal point"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "exponent",
+          "name"
+        ]
+      },
+      "Account": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "cash",
+              "bank",
+              "card",
+              "deposit",
+              "savings",
+              "receivable",
+              "credit_card",
+              "loan",
+              "payable"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "asset",
+              "liability"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "balance": {
+            "$ref": "#/components/schemas/Money",
+            "description": "Natural sign: money held for assets, money owed for liabilities"
+          },
+          "archived_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "kind",
+          "currency",
+          "balance",
+          "inserted_at"
+        ]
+      },
+      "Category": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "expense",
+              "income"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "system": {
+            "type": "boolean"
+          },
+          "archived_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "system",
+          "inserted_at"
+        ]
+      },
+      "Tag": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^#[0-9a-f]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "inserted_at"
+        ]
+      },
+      "Entry": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "account_type": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money",
+            "description": "Positive = debit, negative = credit"
+          },
+          "category_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "account_id",
+          "account_name",
+          "account_type",
+          "currency",
+          "amount"
+        ]
+      },
+      "Exchange": {
+        "type": "object",
+        "properties": {
+          "from_account_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "from_amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "from_currency": {
+            "type": "string"
+          },
+          "to_account_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "to_amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "to_currency": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "string",
+            "description": "to/from in major units"
+          },
+          "fee_amount": {
+            "$ref": "#/components/schemas/Money",
+            "description": "In from_currency, on top of from_amount"
+          }
+        },
+        "required": [
+          "from_account_id",
+          "from_amount",
+          "from_currency",
+          "to_account_id",
+          "to_amount",
+          "to_currency",
+          "rate",
+          "fee_amount"
+        ]
+      },
+      "Transaction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "type": {
+            "enum": [
+              "expense",
+              "income",
+              "transfer",
+              "exchange",
+              "opening_balance",
+              "adjustment",
+              "reversal"
+            ]
+          },
+          "occurred_on": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "description": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          "reverses_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reversed_by_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replaces_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotency_key": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            }
+          },
+          "exchange": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Exchange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "occurred_on",
+          "entries",
+          "tag_ids",
+          "created_by",
+          "inserted_at"
+        ]
+      },
+      "ActivityEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "action": {
+            "type": "string",
+            "description": "resource.verb, e.g. account.updated"
+          },
+          "subject_type": {
+            "type": "string"
+          },
+          "subject_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "changes": {
+            "type": "object",
+            "description": "{field: [old, new]}"
+          },
+          "data": {
+            "type": "object",
+            "description": "Snapshot for rendering"
+          },
+          "inserted_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "subject_type",
+          "actor",
+          "changes",
+          "data",
+          "inserted_at"
+        ]
+      },
+      "Budget": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "category_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "updated_by": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        },
+        "required": [
+          "id",
+          "category_id",
+          "currency",
+          "month",
+          "amount"
+        ]
+      },
+      "BudgetReport": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string"
+          },
+          "budgets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category_id": {
+                  "$ref": "#/components/schemas/Id"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "limit": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "spent": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "remaining": {
+                  "$ref": "#/components/schemas/Money",
+                  "description": "Negative when over budget"
+                },
+                "percent": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "category_id",
+                "name",
+                "currency",
+                "limit",
+                "spent",
+                "remaining",
+                "percent"
+              ]
+            }
+          }
+        },
+        "required": [
+          "month",
+          "budgets"
+        ]
+      },
+      "Breakdown": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "total": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "subcategories": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "category_id": {
+                        "$ref": "#/components/schemas/Id"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "total": {
+                        "$ref": "#/components/schemas/Money"
+                      }
+                    },
+                    "required": [
+                      "category_id",
+                      "name",
+                      "total"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "total",
+                "subcategories"
+              ]
+            }
+          }
+        },
+        "required": [
+          "total",
+          "categories"
+        ]
+      },
+      "IncomeExpenseReport": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "currencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "currency": {
+                  "type": "string"
+                },
+                "income": {
+                  "$ref": "#/components/schemas/Breakdown"
+                },
+                "expense": {
+                  "$ref": "#/components/schemas/Breakdown"
+                },
+                "net": {
+                  "$ref": "#/components/schemas/Money"
+                }
+              },
+              "required": [
+                "currency",
+                "income",
+                "expense",
+                "net"
+              ]
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "currencies"
+        ]
+      },
+      "BalancesReport": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Account"
+            }
+          }
+        },
+        "required": [
+          "on",
+          "accounts"
+        ]
+      },
+      "NetWorthReport": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "currencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "currency": {
+                  "type": "string"
+                },
+                "assets": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "liabilities": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "net": {
+                  "$ref": "#/components/schemas/Money"
+                }
+              },
+              "required": [
+                "currency",
+                "assets",
+                "liabilities",
+                "net"
+              ]
+            }
+          }
+        },
+        "required": [
+          "on",
+          "currencies"
+        ]
+      },
+      "AccountActivity": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/Account"
+          },
+          "from": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Date"
+          },
+          "opening_balance": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "inflow": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "outflow": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "closing_balance": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "account",
+          "from",
+          "to",
+          "opening_balance",
+          "inflow",
+          "outflow",
+          "closing_balance"
+        ]
+      },
+      "TransactionInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "enum": [
+                  "expense",
+                  "income"
+                ]
+              },
+              "account_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money",
+                "description": "Or lines for a split"
+              },
+              "category_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "$ref": "#/components/schemas/Money"
+                    },
+                    "category_id": {
+                      "$ref": "#/components/schemas/Id"
+                    }
+                  },
+                  "required": [
+                    "amount"
+                  ]
+                }
+              },
+              "occurred_on": {
+                "$ref": "#/components/schemas/Date",
+                "description": "Default: today in the workspace timezone"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "tag_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Id"
+                }
+              },
+              "idempotency_key": {
+                "type": "string",
+                "description": "Repeat with the same key returns the original"
+              },
+              "id": {
+                "$ref": "#/components/schemas/Id",
+                "description": "Client-generated UUIDv7, optional"
+              }
+            },
+            "required": [
+              "type",
+              "account_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "transfer"
+              },
+              "from_account_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "to_account_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "occurred_on": {
+                "$ref": "#/components/schemas/Date",
+                "description": "Default: today in the workspace timezone"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "tag_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Id"
+                }
+              },
+              "idempotency_key": {
+                "type": "string",
+                "description": "Repeat with the same key returns the original"
+              },
+              "id": {
+                "$ref": "#/components/schemas/Id",
+                "description": "Client-generated UUIDv7, optional"
+              }
+            },
+            "required": [
+              "type",
+              "from_account_id",
+              "to_account_id",
+              "amount"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "exchange"
+              },
+              "from_account_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "from_amount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "to_account_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "to_amount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "fee": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "fee_category_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "occurred_on": {
+                "$ref": "#/components/schemas/Date",
+                "description": "Default: today in the workspace timezone"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "tag_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Id"
+                }
+              },
+              "idempotency_key": {
+                "type": "string",
+                "description": "Repeat with the same key returns the original"
+              },
+              "id": {
+                "$ref": "#/components/schemas/Id",
+                "description": "Client-generated UUIDv7, optional"
+              }
+            },
+            "required": [
+              "type",
+              "from_account_id",
+              "from_amount",
+              "to_account_id",
+              "to_amount"
+            ]
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      }
+    },
+    "responses": {
+      "401": {
+        "description": "unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "forbidden",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "not_found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "already_reversed, id_taken, last_owner or idempotency_key_reused",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ValidationError"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "rate_limited",
+        "headers": {
+          "retry-after": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

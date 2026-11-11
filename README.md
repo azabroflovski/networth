@@ -21,6 +21,7 @@ AGENTS.md            правила работы в репозитории (CLAU
 - [docs/DOMAIN.md](docs/DOMAIN.md) — доменная и финансовая модель, инварианты, примеры проводок
 - [docs/DECISIONS.md](docs/DECISIONS.md) — журнал решений и альтернатив
 - [docs/ROADMAP.md](docs/ROADMAP.md) — что сделано, что дальше, ограничения
+- [docs/openapi.json](docs/openapi.json) — контракт HTTP API (OpenAPI 3.1): из него клиент генерирует типы
 - Схема БД — в `server/priv/migrations/*.sql`
 
 ## Быстрый старт
