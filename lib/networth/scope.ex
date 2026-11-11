@@ -11,4 +11,6 @@ defmodule Networth.Scope do
   defstruct [:user_id, :workspace_id, :role]
 
   def owner?(%__MODULE__{role: role}), do: role == "owner"
+
+  def require_owner(scope), do: if(owner?(scope), do: :ok, else: {:error, :forbidden})
 end
