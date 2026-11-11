@@ -1,8 +1,9 @@
-/_build/
-/deps/
-/cover/
-/doc/
+# Elixir server
+server/_build/
+server/deps/
+server/cover/
+server/doc/
+server/tmp/
 erl_crash.dump
 *.ez
-/tmp/
 .elixir_ls/

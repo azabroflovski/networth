@@ -2,15 +2,17 @@
 
 Для coding-агентов и людей. Что за продукт и как устроена финансовая модель — в README и `docs/`.
 
+Монорепо: `server/` — JSON API на Elixir, `docs/` — общая документация, `docker-compose.yml` — PostgreSQL для разработки. Команды `mix` выполняются в `server/`; пути кода в этом файле (`lib/…`, `test/…`, `priv/…`) — относительно `server/`.
+
 ## Начало сессии
 
-1. Прочитать README.md, docs/DOMAIN.md, docs/DECISIONS.md, docs/ROADMAP.md.
+1. Прочитать README.md, server/README.md, docs/DOMAIN.md, docs/DECISIONS.md, docs/ROADMAP.md.
 2. Код — источник правды. Если документация ему противоречит, сначала проверить код, потом исправить документ.
 3. По ROADMAP определить, что сделано и какой этап текущий, и продолжать с него.
 
 ## После каждой значимой задачи
 
-- `mix test`, `mix format`, `mix compile --warnings-as-errors`. Тестам нужна PostgreSQL (README).
+- В `server/`: `mix test`, `mix format`, `mix compile --warnings-as-errors`. Тестам нужна PostgreSQL (`docker compose up -d --wait` в корне).
 - Обновить DOMAIN, если менялась модель; DECISIONS — новое решение отдельным пунктом с причиной и рассмотренными вариантами; прежние решения не переписывать, у заменённого меняется только статус; ROADMAP — сделанное, следующие задачи, ограничения.
 - Не описывать нереализованное как работающее. Не заявлять, что что-то работает, без проверки.
 
