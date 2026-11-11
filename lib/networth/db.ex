@@ -90,11 +90,41 @@ defmodule Networth.DB do
     end
   end
 
+  @doc """
+  Like `transaction/1` for functions that return `{:ok, value}` or
+  `{:error, reason}`: an error rolls the transaction back.
+  """
+  def transact(fun) when is_function(fun, 0) do
+    transaction(fn ->
+      case fun.() do
+        {:ok, value} -> value
+        {:error, reason} -> rollback(reason)
+      end
+    end)
+  end
+
   def rollback(reason) do
     case Process.get(@conn_key) do
       nil -> raise "rollback/1 called outside of a transaction"
       conn -> Postgrex.rollback(conn, reason)
     end
+  end
+
+  @doc """
+  Adds an optional filter to `{conditions, args}` while building a WHERE
+  clause. `condition` receives the placeholder (`"$3"`), or a list of them
+  when `value` is a tuple. A nil value adds nothing.
+  """
+  def where(acc, nil, _condition), do: acc
+
+  def where({conditions, args}, values, condition) when is_tuple(values) do
+    values = Tuple.to_list(values)
+    placeholders = Enum.map(1..length(values), &"$#{length(args) + &1}")
+    {conditions ++ [condition.(placeholders)], args ++ values}
+  end
+
+  def where({conditions, args}, value, condition) do
+    {conditions ++ [condition.("$#{length(args) + 1}")], args ++ [value]}
   end
 
   @doc "Name of the violated constraint for unique/foreign key/check errors."

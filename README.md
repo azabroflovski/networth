@@ -108,6 +108,7 @@ lib/networth/
   workspaces.ex      workspaces, членство, приглашения, authorize/2
   accounts.ex        счета, системные счета, балансы
   ledger.ex          проведение операций, сторно, история
+  activity.ex        журнал активности workspace
   reports.ex         отчёты (только чтение)
   budgets.ex         бюджеты: лимиты и отчёт исполнения
   categories.ex      категории
@@ -143,6 +144,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `DELETE /api/workspaces/:wid` | назначить удаление через 7 дней `{confirm: <имя workspace>}` (owner); 202 |
 | `POST /api/workspaces/:wid/restore` | отменить назначенное удаление (owner) |
 | `GET /api/workspaces/:wid/members` | участники |
+| `GET /api/workspaces/:wid/activity` | журнал активности, новые сверху; `subject_id, actor_id, limit, cursor` → `{events, next_cursor}` |
 | `PATCH /api/workspaces/:wid/members/:user_id` | роль `{role}` (owner) |
 | `DELETE /api/workspaces/:wid/members/:user_id` | удалить участника (owner) или выйти (свой id) |
 | `GET/POST /api/workspaces/:wid/invitations`, `DELETE …/:id` | приглашения (owner) |
@@ -161,7 +163,6 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 | `POST /api/workspaces/:wid/transactions` | провести операцию |
 | `GET /api/workspaces/:wid/transactions/:id` | операция с проводками |
 | `PATCH /api/workspaces/:wid/transactions/:id` | изменить описание `{description}`; остальное — только через сторно |
-| `GET /api/workspaces/:wid/transactions/:id/changes` | журнал изменений описания |
 | `POST /api/workspaces/:wid/transactions/:id/reverse` | сторно `{occurred_on?, description?}`; повтор возвращает то же сторно |
 | `POST /api/workspaces/:wid/transactions/:id/correct` | исправить: сторно + новая версия (тело как у проведения), `replaces_id` на исходную |
 | `DELETE /api/workspaces/:wid/transactions/:id` | удалить (сторно); 204 |

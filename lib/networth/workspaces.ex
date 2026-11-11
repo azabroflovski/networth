@@ -6,7 +6,7 @@ defmodule Networth.Workspaces do
   Access to any workspace data goes through `authorize/2`.
   """
 
-  alias Networth.{Categories, DB, Params, Scope, Users}
+  alias Networth.{Activity, Categories, DB, Params, Scope, Users}
 
   require Logger
 
@@ -27,6 +27,11 @@ defmodule Networth.Workspaces do
         )
 
         Categories.create_defaults(workspace.id)
+
+        scope = %Scope{user_id: user_id, workspace_id: workspace.id, role: "owner"}
+        data = %{"name" => workspace.name, "timezone" => workspace.timezone}
+        Activity.record(scope, "workspace.created", "workspace", workspace.id, data: data)
+
         Map.put(workspace, :role, "owner")
       end)
     end
@@ -74,13 +79,24 @@ defmodule Networth.Workspaces do
     with :ok <- require_owner(scope),
          {:ok, name} <- Params.string(params, "name", default: current.name),
          {:ok, timezone} <- timezone(params, current.timezone) do
-      DB.query!("UPDATE workspaces SET name = $2, timezone = $3 WHERE id = $1", [
-        scope.workspace_id,
-        name,
-        timezone
-      ])
+      DB.transaction(fn ->
+        DB.query!("UPDATE workspaces SET name = $2, timezone = $3 WHERE id = $1", [
+          scope.workspace_id,
+          name,
+          timezone
+        ])
 
-      {:ok, get(scope)}
+        updated = get(scope)
+        changes = Activity.diff(current, updated, [:name, :timezone])
+
+        if changes != %{} do
+          Activity.record(scope, "workspace.updated", "workspace", scope.workspace_id,
+            changes: changes
+          )
+        end
+
+        updated
+      end)
     end
   end
 
@@ -99,25 +115,44 @@ defmodule Networth.Workspaces do
              do: :ok,
              else: Params.invalid("confirm", "must match the workspace name")
            ) do
-      DB.query!(
-        """
-        UPDATE workspaces SET deletion_scheduled_at = now() + make_interval(days => $2)
-        WHERE id = $1 AND deletion_scheduled_at IS NULL
-        """,
-        [scope.workspace_id, days]
-      )
+      DB.transaction(fn ->
+        %{num_rows: scheduled} =
+          DB.query!(
+            """
+            UPDATE workspaces SET deletion_scheduled_at = now() + make_interval(days => $2)
+            WHERE id = $1 AND deletion_scheduled_at IS NULL
+            """,
+            [scope.workspace_id, days]
+          )
 
-      {:ok, get(scope)}
+        workspace = get(scope)
+
+        if scheduled == 1 do
+          Activity.record(scope, "workspace.deletion_scheduled", "workspace", scope.workspace_id,
+            data: %{"deletion_scheduled_at" => workspace.deletion_scheduled_at}
+          )
+        end
+
+        workspace
+      end)
     end
   end
 
   def cancel_deletion(%Scope{} = scope) do
     with :ok <- require_owner(scope) do
-      DB.query!("UPDATE workspaces SET deletion_scheduled_at = NULL WHERE id = $1", [
-        scope.workspace_id
-      ])
+      DB.transaction(fn ->
+        %{num_rows: cancelled} =
+          DB.query!(
+            "UPDATE workspaces SET deletion_scheduled_at = NULL WHERE id = $1 AND deletion_scheduled_at IS NOT NULL",
+            [scope.workspace_id]
+          )
 
-      {:ok, get(scope)}
+        if cancelled == 1 do
+          Activity.record(scope, "workspace.deletion_cancelled", "workspace", scope.workspace_id)
+        end
+
+        get(scope)
+      end)
     end
   end
 
@@ -142,7 +177,7 @@ defmodule Networth.Workspaces do
 
   # Children first; in each table one statement deletes all rows, so
   # references between rows of the same table are checked once at its end.
-  @purge_order ~w(transaction_tags transaction_changes exchanges ledger_entries transactions
+  @purge_order ~w(activity_events transaction_tags exchanges ledger_entries transactions
                   budgets accounts categories tags workspace_invitations workspace_members)
 
   defp purge!(id) do
@@ -232,10 +267,16 @@ defmodule Networth.Workspaces do
             [scope.workspace_id, member.user_id, role]
           )
 
-          DB.one(@member_select <> " WHERE m.workspace_id = $1 AND m.user_id = $2", [
-            scope.workspace_id,
-            member.user_id
-          ])
+          updated = member_details(scope, member.user_id)
+
+          if role != member.role do
+            Activity.record(scope, "member.role_changed", "user", member.user_id,
+              changes: %{"role" => [member.role, role]},
+              data: %{"name" => updated.name, "email" => updated.email}
+            )
+          end
+
+          updated
         end
       end)
     end
@@ -253,6 +294,8 @@ defmodule Networth.Workspaces do
              if member.role == "owner" and owners == 1 do
                {:error, :last_owner}
              else
+               details = member_details(scope, member.user_id)
+
                DB.query!(
                  "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
                  [
@@ -261,11 +304,25 @@ defmodule Networth.Workspaces do
                  ]
                )
 
+               action =
+                 if member.user_id == scope.user_id, do: "member.left", else: "member.removed"
+
+               Activity.record(scope, action, "user", member.user_id,
+                 data: %{"name" => details.name, "email" => details.email}
+               )
+
                :removed
              end
            end) do
       :ok
     end
+  end
+
+  defp member_details(scope, user_id) do
+    DB.one(@member_select <> " WHERE m.workspace_id = $1 AND m.user_id = $2", [
+      scope.workspace_id,
+      user_id
+    ])
   end
 
   # Membership changes lock the workspace row so that concurrent changes are
@@ -313,7 +370,13 @@ defmodule Networth.Workspaces do
              [scope.workspace_id, email, scope.user_id]
            ) do
         {:ok, result} ->
-          {:ok, result |> DB.to_maps() |> hd()}
+          invitation = result |> DB.to_maps() |> hd()
+
+          Activity.record(scope, "invitation.created", "invitation", invitation.id,
+            data: %{"email" => email}
+          )
+
+          {:ok, invitation}
 
         {:error, error} ->
           case DB.constraint_violation(error) do
@@ -353,11 +416,28 @@ defmodule Networth.Workspaces do
   def revoke_invitation(%Scope{} = scope, invitation_id) do
     with :ok <- require_owner(scope),
          id when is_binary(id) <- Params.cast_id(invitation_id),
-         %{num_rows: 1} <-
-           DB.query!(
-             "DELETE FROM workspace_invitations WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL",
-             [id, scope.workspace_id]
-           ) do
+         {:ok, :ok} <-
+           DB.transaction(fn ->
+             %{rows: rows} =
+               DB.query!(
+                 """
+                 DELETE FROM workspace_invitations
+                 WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL
+                 RETURNING email
+                 """,
+                 [id, scope.workspace_id]
+               )
+
+             case rows do
+               [[email]] ->
+                 Activity.record(scope, "invitation.revoked", "invitation", id,
+                   data: %{"email" => email}
+                 )
+
+               [] ->
+                 DB.rollback(:not_found)
+             end
+           end) do
       :ok
     else
       {:error, _} = error -> error
@@ -405,6 +485,11 @@ defmodule Networth.Workspaces do
         )
 
         {:ok, scope} = authorize(user.id, invitation.workspace_id)
+
+        Activity.record(scope, "member.joined", "user", user.id,
+          data: %{"name" => user.name, "email" => user.email}
+        )
+
         get(scope)
       end)
     else

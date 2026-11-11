@@ -17,7 +17,7 @@ defmodule Networth.Ledger do
   with amounts as decimal strings in major units.
   """
 
-  alias Networth.{Accounts, Categories, DB, Money, Params, Scope, Tags, Workspaces}
+  alias Networth.{Accounts, Activity, Categories, DB, Money, Params, Scope, Tags, Workspaces}
 
   @postable_types ~w(expense income transfer exchange)
   @max_lines 50
@@ -44,7 +44,15 @@ defmodule Networth.Ledger do
   def post(%Scope{} = scope, params) do
     with {:ok, type} <- Params.one_of(params, "type", @postable_types, required: true),
          {:ok, attrs} <- common_attrs(scope, params) do
-      DB.transaction(fn -> post_new(scope, type, attrs, params) end)
+      DB.transaction(fn ->
+        transaction = post_new(scope, type, attrs, params)
+
+        Activity.record(scope, "transaction.posted", "transaction", transaction.id,
+          data: summary(transaction)
+        )
+
+        transaction
+      end)
       |> replay_on_conflict(scope, attrs)
     end
   end
@@ -458,13 +466,43 @@ defmodule Networth.Ledger do
             reversal
 
           true ->
-            insert_reversal(scope, original, occurred_on || original.occurred_on, description)
+            reversal =
+              insert_reversal(scope, original, occurred_on || original.occurred_on, description)
+
+            {:ok, original} = get(scope, original.id)
+
+            Activity.record(scope, "transaction.reversed", "transaction", original.id,
+              data: Map.put(summary(original), "reversal_id", reversal.id)
+            )
+
+            reversal
         end
       end)
     else
       {:error, _} = error -> error
       nil -> {:error, :not_found}
     end
+  end
+
+  @system_account_types ~w(income expense opening_balance exchange adjustment)
+
+  # What a feed needs to show an operation: amounts on the user's accounts,
+  # not the system counterparts.
+  defp summary(transaction) do
+    %{
+      "type" => transaction.type,
+      "occurred_on" => Date.to_iso8601(transaction.occurred_on),
+      "description" => transaction.description,
+      "amounts" =>
+        for e <- transaction.entries, e.account_type not in @system_account_types do
+          %{
+            "account_id" => e.account_id,
+            "account_name" => e.account_name,
+            "currency" => e.currency,
+            "amount" => Activity.money(e.amount, e.currency)
+          }
+        end
+    }
   end
 
   defp lock_transaction(scope, id) do
@@ -539,7 +577,15 @@ defmodule Networth.Ledger do
 
           true ->
             insert_reversal(scope, original, original.occurred_on, nil)
-            post_new(scope, type, Map.put(attrs, :replaces_id, original.id), merged)
+            {:ok, before} = get(scope, original.id)
+            corrected = post_new(scope, type, Map.put(attrs, :replaces_id, original.id), merged)
+
+            Activity.record(scope, "transaction.corrected", "transaction", corrected.id,
+              data: summary(corrected),
+              changes: %{"amounts" => [summary(before)["amounts"], summary(corrected)["amounts"]]}
+            )
+
+            corrected
         end
       end)
       |> replay_on_conflict(scope, attrs)
@@ -606,12 +652,30 @@ defmodule Networth.Ledger do
             other = Accounts.system_account(scope.workspace_id, "adjustment", account.currency)
             debit = sign * difference
 
-            insert(scope, %{
-              type: "adjustment",
-              occurred_on: occurred_on,
-              description: description,
-              entries: [entry(account, debit), entry(other, -debit)]
-            })
+            adjustment =
+              insert(scope, %{
+                type: "adjustment",
+                occurred_on: occurred_on,
+                description: description,
+                entries: [entry(account, debit), entry(other, -debit)]
+              })
+
+            Activity.record(scope, "account.balance_adjusted", "account", account.id,
+              data: %{
+                "account_name" => account.name,
+                "transaction_id" => adjustment.id,
+                "currency" => account.currency,
+                "difference" => Activity.money(difference, account.currency)
+              },
+              changes: %{
+                "balance" => [
+                  Activity.money(actual - difference, account.currency),
+                  Activity.money(actual, account.currency)
+                ]
+              }
+            )
+
+            adjustment
         end
       end)
     else
@@ -625,7 +689,7 @@ defmodule Networth.Ledger do
 
   @doc """
   Edits a posted transaction. Only the description can change, and the
-  database records every change in transaction_changes. Amounts, accounts,
+  database records every change in the activity log. Amounts, accounts,
   categories and dates are changed by reversing and posting again.
   """
   def update(%Scope{} = scope, id, params) do
@@ -671,22 +735,6 @@ defmodule Networth.Ledger do
       else: Params.invalid("description", "is required")
   end
 
-  @doc "Edit history of a transaction, oldest first."
-  def changes(%Scope{} = scope, id) do
-    with {:ok, transaction} <- get(scope, id) do
-      {:ok,
-       DB.all(
-         """
-         SELECT c.id, c.field, c.old_value, c.new_value, c.changed_by, u.name AS changed_by_name, c.inserted_at
-         FROM transaction_changes c JOIN users u ON u.id = c.changed_by
-         WHERE c.transaction_id = $1 AND c.workspace_id = $2
-         ORDER BY c.id
-         """,
-         [transaction.id, scope.workspace_id]
-       )}
-    end
-  end
-
   @doc "Replaces the tags of a transaction. Tags are not part of the ledger."
   def set_tags(%Scope{} = scope, id, params) do
     with {:ok, transaction} <- get(scope, id),
@@ -695,8 +743,15 @@ defmodule Networth.Ledger do
       DB.transaction(fn ->
         DB.query!("DELETE FROM transaction_tags WHERE transaction_id = $1", [transaction.id])
         insert_tags(scope, transaction.id, tag_ids)
-        {:ok, transaction} = get(scope, transaction.id)
-        transaction
+        {:ok, updated} = get(scope, transaction.id)
+
+        if updated.tag_ids != transaction.tag_ids do
+          Activity.record(scope, "transaction.tags_changed", "transaction", transaction.id,
+            changes: Activity.diff(transaction, updated, [:tag_ids])
+          )
+        end
+
+        updated
       end)
     end
   end
@@ -747,25 +802,25 @@ defmodule Networth.Ledger do
       {conditions, args} =
         {["t.workspace_id = $1" | if(include_reversed, do: [], else: [@not_reversed])],
          [scope.workspace_id]}
-        |> where(
+        |> DB.where(
           account_id,
           &"EXISTS (SELECT 1 FROM ledger_entries e WHERE e.transaction_id = t.id AND e.account_id = #{&1})"
         )
-        |> where(
+        |> DB.where(
           category_id,
           &"""
           EXISTS (SELECT 1 FROM ledger_entries e WHERE e.transaction_id = t.id
             AND e.category_id IN (SELECT id FROM categories WHERE id = #{&1} OR parent_id = #{&1}))
           """
         )
-        |> where(
+        |> DB.where(
           tag_id,
           &"EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = #{&1})"
         )
-        |> where(type, &"t.type = #{&1}")
-        |> where(from, &"t.occurred_on >= #{&1}")
-        |> where(to, &"t.occurred_on <= #{&1}")
-        |> where(cursor, fn [date, id] -> "(t.occurred_on, t.id) < (#{date}, #{id})" end)
+        |> DB.where(type, &"t.type = #{&1}")
+        |> DB.where(from, &"t.occurred_on >= #{&1}")
+        |> DB.where(to, &"t.occurred_on <= #{&1}")
+        |> DB.where(cursor, fn [date, id] -> "(t.occurred_on, t.id) < (#{date}, #{id})" end)
 
       sql =
         @select <>
@@ -794,18 +849,6 @@ defmodule Networth.Ledger do
     else
       _ -> Params.invalid("cursor", "is invalid")
     end
-  end
-
-  defp where(acc, nil, _condition), do: acc
-
-  defp where({conditions, args}, values, condition) when is_tuple(values) do
-    values = Tuple.to_list(values)
-    placeholders = Enum.map(1..length(values), &"$#{length(args) + &1}")
-    {conditions ++ [condition.(placeholders)], args ++ values}
-  end
-
-  defp where({conditions, args}, value, condition) do
-    {conditions ++ [condition.("$#{length(args) + 1}")], args ++ [value]}
   end
 
   defp preload([]), do: []

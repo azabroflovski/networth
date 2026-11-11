@@ -5,7 +5,7 @@ defmodule Networth.Categories do
   transactions keep referring to them.
   """
 
-  alias Networth.{DB, Params, Scope}
+  alias Networth.{Activity, DB, Params, Scope}
 
   @defaults [
     {"expense", ~w(Food Transport Housing Health Entertainment Shopping Travel)},
@@ -56,9 +56,20 @@ defmodule Networth.Categories do
       INSERT INTO categories (workspace_id, parent_id, kind, name) VALUES ($1, $2, $3, $4) RETURNING *
       """
 
-      sql
-      |> DB.query([scope.workspace_id, parent_id, kind, name])
-      |> handle_write()
+      DB.transact(fn ->
+        with {:ok, category} <-
+               sql |> DB.query([scope.workspace_id, parent_id, kind, name]) |> handle_write() do
+          Activity.record(scope, "category.created", "category", category.id,
+            data: %{
+              "name" => category.name,
+              "kind" => category.kind,
+              "parent_id" => category.parent_id
+            }
+          )
+
+          {:ok, category}
+        end
+      end)
     end
   end
 
@@ -86,14 +97,32 @@ defmodule Networth.Categories do
     with {:ok, category} <- get(scope, id),
          {:ok, name} <- Params.string(params, "name", default: category.name),
          {:ok, archived} <- Params.boolean(params, "archived") do
-      """
-      UPDATE categories SET name = $3,
-        archived_at = CASE WHEN $4::boolean IS NULL THEN archived_at
-                           WHEN $4 THEN coalesce(archived_at, now()) END
-      WHERE id = $1 AND workspace_id = $2 RETURNING *
-      """
-      |> DB.query([category.id, scope.workspace_id, name, archived])
-      |> handle_write()
+      DB.transact(fn ->
+        with {:ok, updated} <-
+               """
+               UPDATE categories SET name = $3,
+                 archived_at = CASE WHEN $4::boolean IS NULL THEN archived_at
+                                    WHEN $4 THEN coalesce(archived_at, now()) END
+               WHERE id = $1 AND workspace_id = $2 RETURNING *
+               """
+               |> DB.query([category.id, scope.workspace_id, name, archived])
+               |> handle_write() do
+          record_update(scope, category, updated)
+          {:ok, updated}
+        end
+      end)
+    end
+  end
+
+  defp record_update(scope, before, updated) do
+    editable = &%{name: &1.name, archived: &1.archived_at != nil}
+    changes = Activity.diff(editable.(before), editable.(updated), [:name, :archived])
+
+    if changes != %{} do
+      Activity.record(scope, "category.updated", "category", updated.id,
+        changes: changes,
+        data: %{"name" => updated.name}
+      )
     end
   end
 

@@ -9,6 +9,7 @@ defmodule Networth.Web.Router do
 
   alias Networth.{
     Accounts,
+    Activity,
     Budgets,
     Categories,
     Currencies,
@@ -178,6 +179,23 @@ defmodule Networth.Web.Router do
     end)
   end
 
+  get "/api/workspaces/:wid/activity" do
+    in_workspace(conn, wid, fn scope ->
+      conn = fetch_query_params(conn)
+
+      case Activity.list(scope, conn.query_params) do
+        {:ok, %{events: events, next_cursor: next_cursor}} ->
+          send_json(conn, 200, %{
+            events: Enum.map(events, &View.activity_event/1),
+            next_cursor: next_cursor
+          })
+
+        error ->
+          render_error(error, conn)
+      end
+    end)
+  end
+
   # Accounts
 
   get "/api/workspaces/:wid/accounts" do
@@ -303,12 +321,6 @@ defmodule Networth.Web.Router do
     in_workspace(conn, wid, fn scope ->
       Ledger.update(scope, id, conn.body_params)
       |> render(conn, 200, :transaction, &View.transaction/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/transactions/:id/changes" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.changes(scope, id) |> render_list(conn, :changes, &View.transaction_change/1)
     end)
   end
 

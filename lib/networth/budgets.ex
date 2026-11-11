@@ -9,7 +9,7 @@ defmodule Networth.Budgets do
   subcategories.
   """
 
-  alias Networth.{Categories, DB, Params, Reports, Scope, Workspaces}
+  alias Networth.{Activity, Categories, DB, Params, Reports, Scope, Workspaces}
 
   @doc "All limits with their history, newest month first."
   def list(%Scope{} = scope) do
@@ -30,17 +30,51 @@ defmodule Networth.Budgets do
          {:ok, amount} <- Params.amount(params, "amount", currency, required: true),
          :ok <- if(amount < 0, do: Params.invalid("amount", "must not be negative"), else: :ok),
          {:ok, month} <- month(scope, params) do
-      {:ok,
-       DB.one(
-         """
-         INSERT INTO budgets (workspace_id, category_id, currency, starts_on, amount, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (workspace_id, category_id, currency, starts_on)
-         DO UPDATE SET amount = EXCLUDED.amount, updated_by = EXCLUDED.updated_by, updated_at = now()
-         RETURNING *
-         """,
-         [scope.workspace_id, category_id, currency, month, amount, scope.user_id]
-       )}
+      DB.transaction(fn ->
+        previous = effective_limit(scope, category_id, currency, month)
+
+        budget =
+          DB.one(
+            """
+            INSERT INTO budgets (workspace_id, category_id, currency, starts_on, amount, updated_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (workspace_id, category_id, currency, starts_on)
+            DO UPDATE SET amount = EXCLUDED.amount, updated_by = EXCLUDED.updated_by, updated_at = now()
+            RETURNING *
+            """,
+            [scope.workspace_id, category_id, currency, month, amount, scope.user_id]
+          )
+
+        {:ok, category} = Categories.get(scope, category_id)
+        format = &(&1 && Activity.money(&1, currency))
+
+        Activity.record(scope, "budget.set", "category", category_id,
+          changes: %{"limit" => [format.(previous), format.(amount)]},
+          data: %{
+            "category_name" => category.name,
+            "currency" => currency,
+            "month" => Calendar.strftime(month, "%Y-%m")
+          }
+        )
+
+        budget
+      end)
+    end
+  end
+
+  # The limit in effect for the month before this change, or nil.
+  defp effective_limit(scope, category_id, currency, month) do
+    case DB.one(
+           """
+           SELECT amount FROM budgets
+           WHERE workspace_id = $1 AND category_id = $2 AND currency = $3 AND starts_on <= $4
+           ORDER BY starts_on DESC LIMIT 1
+           """,
+           [scope.workspace_id, category_id, currency, month]
+         ) do
+      %{amount: 0} -> nil
+      %{amount: amount} -> amount
+      nil -> nil
     end
   end
 

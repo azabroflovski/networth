@@ -4,7 +4,7 @@ defmodule Networth.Tags do
   never affect the ledger, so they can be renamed and deleted freely.
   """
 
-  alias Networth.{DB, Params, Scope}
+  alias Networth.{Activity, DB, Params, Scope}
 
   def list(%Scope{} = scope) do
     DB.all("SELECT * FROM tags WHERE workspace_id = $1 ORDER BY lower(name)", [scope.workspace_id])
@@ -26,9 +26,15 @@ defmodule Networth.Tags do
   def create(%Scope{} = scope, params) do
     with {:ok, name} <- Params.string(params, "name", required: true, max: 50),
          {:ok, color} <- color(params, nil) do
-      "INSERT INTO tags (workspace_id, name, color) VALUES ($1, $2, $3) RETURNING *"
-      |> DB.query([scope.workspace_id, name, color])
-      |> handle_write()
+      DB.transact(fn ->
+        with {:ok, tag} <-
+               "INSERT INTO tags (workspace_id, name, color) VALUES ($1, $2, $3) RETURNING *"
+               |> DB.query([scope.workspace_id, name, color])
+               |> handle_write() do
+          Activity.record(scope, "tag.created", "tag", tag.id, data: %{"name" => tag.name})
+          {:ok, tag}
+        end
+      end)
     end
   end
 
@@ -36,18 +42,37 @@ defmodule Networth.Tags do
     with {:ok, tag} <- get(scope, id),
          {:ok, name} <- Params.string(params, "name", max: 50, default: tag.name),
          {:ok, color} <- color(params, tag.color) do
-      "UPDATE tags SET name = $3, color = $4 WHERE id = $1 AND workspace_id = $2 RETURNING *"
-      |> DB.query([tag.id, scope.workspace_id, name, color])
-      |> handle_write()
+      DB.transact(fn ->
+        with {:ok, updated} <-
+               "UPDATE tags SET name = $3, color = $4 WHERE id = $1 AND workspace_id = $2 RETURNING *"
+               |> DB.query([tag.id, scope.workspace_id, name, color])
+               |> handle_write() do
+          changes = Activity.diff(tag, updated, [:name, :color])
+
+          if changes != %{} do
+            Activity.record(scope, "tag.updated", "tag", tag.id,
+              changes: changes,
+              data: %{"name" => updated.name}
+            )
+          end
+
+          {:ok, updated}
+        end
+      end)
     end
   end
 
   def delete(%Scope{} = scope, id) do
     with {:ok, tag} <- get(scope, id) do
-      DB.query!("DELETE FROM tags WHERE id = $1 AND workspace_id = $2", [
-        tag.id,
-        scope.workspace_id
-      ])
+      {:ok, :ok} =
+        DB.transaction(fn ->
+          DB.query!("DELETE FROM tags WHERE id = $1 AND workspace_id = $2", [
+            tag.id,
+            scope.workspace_id
+          ])
+
+          Activity.record(scope, "tag.deleted", "tag", tag.id, data: %{"name" => tag.name})
+        end)
 
       :ok
     end

@@ -152,11 +152,13 @@ defmodule Networth.Web.RouterTest do
 
     assert {200,
             %{
-              "changes" => [
-                %{"field" => "description", "old_value" => "Cofee", "new_value" => "Coffee"}
+              "events" => [
+                %{"action" => "transaction.description_changed", "changes" => changes} | _
               ]
             }} =
-             request(:get, path <> "/changes", nil, token)
+             request(:get, "/api/workspaces/#{ws}/activity?subject_id=#{tx["id"]}", nil, token)
+
+    assert changes == %{"description" => ["Cofee", "Coffee"]}
   end
 
   test "exchange details are rendered with currencies and rate" do

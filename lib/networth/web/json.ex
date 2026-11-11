@@ -47,8 +47,10 @@ defmodule Networth.Web.JSON do
     |> Map.put(:exchange, t.exchange && exchange(t.exchange))
   end
 
-  def transaction_change(c) do
-    Map.take(c, [:id, :field, :old_value, :new_value, :changed_by, :changed_by_name, :inserted_at])
+  def activity_event(e) do
+    e
+    |> Map.take([:id, :action, :subject_type, :subject_id, :changes, :data, :inserted_at])
+    |> Map.put(:actor, %{id: e.actor_id, name: e.actor_name})
   end
 
   defp entry(e) do

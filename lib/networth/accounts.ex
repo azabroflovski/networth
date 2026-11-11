@@ -12,7 +12,7 @@ defmodule Networth.Accounts do
   account's natural sign: money held for assets, money owed for liabilities.
   """
 
-  alias Networth.{DB, Ledger, Params, Scope, Workspaces}
+  alias Networth.{Activity, DB, Ledger, Params, Scope, Workspaces}
 
   @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
@@ -83,6 +83,16 @@ defmodule Networth.Accounts do
           end
 
           {:ok, account} = get(scope, account.id)
+
+          Activity.record(scope, "account.created", "account", account.id,
+            data: %{
+              "name" => account.name,
+              "type" => account.type,
+              "currency" => account.currency,
+              "opening_balance" => Activity.money(account.balance, account.currency)
+            }
+          )
+
           account
         end)
 
@@ -125,11 +135,22 @@ defmodule Networth.Accounts do
         |> DB.query([account.id, scope.workspace_id, name, archived])
         |> handle_write()
 
-        {:ok, account} = get(scope, account.id)
-        account
+        {:ok, updated} = get(scope, account.id)
+        changes = Activity.diff(editable(account), editable(updated), [:name, :archived])
+
+        if changes != %{} do
+          Activity.record(scope, "account.updated", "account", account.id,
+            changes: changes,
+            data: %{"name" => updated.name}
+          )
+        end
+
+        updated
       end)
     end
   end
+
+  defp editable(account), do: %{name: account.name, archived: account.archived_at != nil}
 
   @doc """
   Loads a user account for posting and locks it against concurrent archiving.
