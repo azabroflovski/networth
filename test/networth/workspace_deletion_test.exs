@@ -1,5 +1,5 @@
 defmodule Networth.WorkspaceDeletionTest do
-  use Networth.DataCase
+  use Networth.ConnCase
 
   @tables ~w(accounts categories tags transactions ledger_entries exchanges transaction_tags
              activity_log budgets workspace_invitations workspace_members)
@@ -172,26 +172,16 @@ defmodule Networth.WorkspaceDeletionTest do
   test "deletion over HTTP", ctx do
     token = Users.create_token(ctx.owner.user.id)
 
-    call = fn method, path, body ->
-      conn =
-        Plug.Test.conn(method, path, Jason.encode!(body))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
-        |> Networth.Web.Router.call([])
-
-      {conn.status, Jason.decode!(conn.resp_body)}
-    end
-
     path = "/api/workspaces/#{ctx.family.id}"
 
-    assert {422, _} = call.(:delete, path, %{confirm: "nope"})
+    assert {422, _} = request(:delete, path, %{confirm: "nope"}, token)
 
     assert {202, %{"workspace" => %{"deletion_scheduled_at" => at}}} =
-             call.(:delete, path, %{confirm: "Family"})
+             request(:delete, path, %{confirm: "Family"}, token)
 
     assert is_binary(at)
 
     assert {200, %{"workspace" => %{"deletion_scheduled_at" => nil}}} =
-             call.(:post, path <> "/restore", %{})
+             request(:post, path <> "/restore", %{}, token)
   end
 end
