@@ -1,9 +1,9 @@
-defmodule Networth.UUID do
+defmodule Networth.DB.UUID do
   @moduledoc """
   UUIDs are canonical lowercase strings everywhere in the application.
 
   Also a Postgrex extension for the `uuid` type (registered in
-  `Networth.PostgresTypes`): it converts between strings and the 16-byte wire
+  `Networth.DB.Types`): it converts between strings and the 16-byte wire
   format, so no other code deals with the binary form.
   """
 
@@ -44,7 +44,7 @@ defmodule Networth.UUID do
   def encode(_state) do
     quote location: :keep do
       uuid when is_binary(uuid) ->
-        case Networth.UUID.dump(uuid) do
+        case Networth.DB.UUID.dump(uuid) do
           {:ok, bin} ->
             [<<16::signed-size(32)>> | bin]
 
@@ -57,7 +57,7 @@ defmodule Networth.UUID do
   @impl true
   def decode(_state) do
     quote location: :keep do
-      <<16::signed-size(32), uuid::binary-16>> -> Networth.UUID.load(uuid)
+      <<16::signed-size(32), uuid::binary-16>> -> Networth.DB.UUID.load(uuid)
     end
   end
 end

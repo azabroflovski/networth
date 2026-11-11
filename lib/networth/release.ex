@@ -8,6 +8,6 @@ defmodule Networth.Release do
   def migrate do
     Application.load(:networth)
     {:ok, _} = Application.ensure_all_started(:postgrex)
-    Networth.Migrator.migrate()
+    Networth.DB.Migrator.migrate()
   end
 end

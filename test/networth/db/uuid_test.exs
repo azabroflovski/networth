@@ -1,7 +1,7 @@
-defmodule Networth.UUIDTest do
+defmodule Networth.DB.UUIDTest do
   use ExUnit.Case, async: true
 
-  alias Networth.UUID
+  alias Networth.DB.UUID
 
   test "casts UUID strings to canonical lowercase form" do
     assert UUID.cast("0193A6C2-7D3E-7B21-9F4A-1C2D3E4F5A6B") ==

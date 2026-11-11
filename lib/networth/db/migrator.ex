@@ -1,4 +1,4 @@
-defmodule Networth.Migrator do
+defmodule Networth.DB.Migrator do
   @moduledoc """
   Applies `priv/migrations/NNNN_name.sql` files in order.
 

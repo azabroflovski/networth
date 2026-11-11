@@ -15,7 +15,7 @@ defmodule Mix.Tasks.Db.Create do
   @impl true
   def run(_args) do
     Mix.Tasks.Db.start()
-    Networth.Migrator.create_database()
+    Networth.DB.Migrator.create_database()
   end
 end
 
@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Db.Migrate do
   @impl true
   def run(_args) do
     Mix.Tasks.Db.start()
-    Networth.Migrator.migrate()
+    Networth.DB.Migrator.migrate()
   end
 end
 
@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Db.Setup do
   @impl true
   def run(_args) do
     Mix.Tasks.Db.start()
-    Networth.Migrator.create_database()
-    Networth.Migrator.migrate()
+    Networth.DB.Migrator.create_database()
+    Networth.DB.Migrator.migrate()
   end
 end
 
@@ -53,6 +53,6 @@ defmodule Mix.Tasks.Db.Drop do
   def run(_args) do
     if Mix.env() == :prod, do: Mix.raise("db.drop is disabled in prod")
     Mix.Tasks.Db.start()
-    Networth.Migrator.drop_database()
+    Networth.DB.Migrator.drop_database()
   end
 end

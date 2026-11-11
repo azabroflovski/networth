@@ -130,5 +130,5 @@ defmodule Networth.Params do
     do: :crypto.hash(:sha256, :erlang.term_to_binary(params, [:deterministic]))
 
   @doc "Cast an id from a UUID string; nil if it is not one."
-  def cast_id(value), do: Networth.UUID.cast(value)
+  def cast_id(value), do: Networth.DB.UUID.cast(value)
 end

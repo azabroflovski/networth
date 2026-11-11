@@ -16,7 +16,7 @@ defmodule Networth.DB do
       |> Keyword.merge(
         name: @pool,
         pool_size: Application.fetch_env!(:networth, :pool_size),
-        types: Networth.PostgresTypes
+        types: Networth.DB.Types
       )
 
     Postgrex.child_spec(opts)
