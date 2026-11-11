@@ -48,6 +48,14 @@ defmodule Networth.DB do
 
   def query(sql, params \\ []), do: Postgrex.query(conn(), sql, params)
 
+  @doc "`:ok` when the database answers, `:error` otherwise."
+  def ping do
+    case query("SELECT 1") do
+      {:ok, _} -> :ok
+      {:error, _} -> :error
+    end
+  end
+
   def query!(sql, params \\ []), do: Postgrex.query!(conn(), sql, params)
 
   @doc "Runs a query and returns rows as maps with atom keys."

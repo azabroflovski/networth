@@ -30,11 +30,11 @@ defmodule Networth.Web.Router do
 
   post "/api/register" do
     case Users.register(conn.body_params) do
-      {:ok, %{user: user, workspace: workspace}} ->
+      {:ok, %{user: user, workspace: workspace, token: token}} ->
         send_json(conn, 201, %{
           user: View.user(user),
           workspace: View.workspace(workspace),
-          token: Users.create_token(user.id)
+          token: token
         })
 
       error ->
@@ -74,9 +74,9 @@ defmodule Networth.Web.Router do
   end
 
   get "/health" do
-    case Networth.DB.query("SELECT 1") do
-      {:ok, _} -> send_json(conn, 200, %{status: "ok"})
-      {:error, _} -> send_json(conn, 503, %{status: "database_unavailable"})
+    case Networth.DB.ping() do
+      :ok -> send_json(conn, 200, %{status: "ok"})
+      :error -> send_json(conn, 503, %{status: "database_unavailable"})
     end
   end
 

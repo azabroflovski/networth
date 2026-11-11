@@ -2,6 +2,13 @@ defmodule Networth.UsersTest do
   use Networth.DataCase
 
   describe "register/1" do
+    test "returns a working token" do
+      {:ok, %{user: user, token: token}} =
+        Users.register(%{"email" => "t@example.com", "name" => "T", "password" => "password1"})
+
+      assert Users.get_by_token(token).id == user.id
+    end
+
     test "creates the user with a personal workspace they own" do
       %{user: user, workspace: workspace} = register!("Alice@Example.com")
 
@@ -112,7 +119,11 @@ defmodule Networth.UsersTest do
       )
 
       assert Users.delete_expired_tokens() == 1
-      assert %{n: 1} = DB.one("SELECT count(*) AS n FROM user_tokens")
+
+      assert DB.one("SELECT 1 AS one FROM user_tokens WHERE token_hash = $1", [
+               :crypto.hash(:sha256, expired)
+             ]) == nil
+
       assert Users.get_by_token(live)
     end
 

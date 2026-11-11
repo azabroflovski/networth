@@ -2,8 +2,8 @@ defmodule Networth.Users do
   @moduledoc """
   User accounts, password authentication and bearer tokens.
 
-  Registration creates the user together with their personal workspace in one
-  database transaction.
+  Registration creates the user, their personal workspace and a first token
+  in one database transaction; login returns a new token too.
   """
 
   alias Networth.{DB, Params, RateLimit, Workspaces}
@@ -27,7 +27,7 @@ defmodule Networth.Users do
             {:error, reason} -> DB.rollback(reason)
           end
 
-        %{user: user, workspace: workspace}
+        %{user: user, workspace: workspace, token: create_token(user.id)}
       end)
     end
   end
