@@ -18,7 +18,7 @@ defmodule Networth.Activity do
   def record(%Scope{} = scope, action, subject_type, subject_id, opts \\ []) do
     DB.query!(
       """
-      INSERT INTO activity_events (workspace_id, actor_id, action, subject_type, subject_id, changes, data)
+      INSERT INTO activity_log (workspace_id, actor_id, action, subject_type, subject_id, changes, data)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       """,
       [
@@ -64,7 +64,7 @@ defmodule Networth.Activity do
           """
           SELECT e.id, e.action, e.subject_type, e.subject_id, e.actor_id, u.name AS actor_name,
             e.changes, e.data, e.inserted_at
-          FROM activity_events e JOIN users u ON u.id = e.actor_id
+          FROM activity_log e JOIN users u ON u.id = e.actor_id
           WHERE #{Enum.join(conditions, " AND ")}
           ORDER BY e.id DESC LIMIT $#{length(args) + 1}
           """,

@@ -747,8 +747,8 @@ defmodule Networth.LedgerTest do
       {:ok, _} = Ledger.update(scope, tx.id, %{"description" => "Products"})
 
       for sql <- [
-            "UPDATE activity_events SET data = '{}' WHERE subject_id = $1",
-            "DELETE FROM activity_events WHERE subject_id = $1"
+            "UPDATE activity_log SET data = '{}' WHERE subject_id = $1",
+            "DELETE FROM activity_log WHERE subject_id = $1"
           ] do
         assert {:error, %Postgrex.Error{postgres: %{message: message}}} = DB.query(sql, [tx.id])
         assert message =~ "append-only"

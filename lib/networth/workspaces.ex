@@ -177,7 +177,7 @@ defmodule Networth.Workspaces do
 
   # Children first; in each table one statement deletes all rows, so
   # references between rows of the same table are checked once at its end.
-  @purge_order ~w(activity_events transaction_tags exchanges ledger_entries transactions
+  @purge_order ~w(activity_log transaction_tags exchanges ledger_entries transactions
                   budgets accounts categories tags workspace_invitations workspace_members)
 
   defp purge!(id) do

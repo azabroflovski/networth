@@ -2,7 +2,7 @@ defmodule Networth.WorkspaceDeletionTest do
   use Networth.DataCase
 
   @tables ~w(accounts categories tags transactions ledger_entries exchanges transaction_tags
-             activity_events budgets workspace_invitations workspace_members)
+             activity_log budgets workspace_invitations workspace_members)
 
   setup do
     owner = register!("owner@example.com")

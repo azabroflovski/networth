@@ -186,7 +186,7 @@ defmodule Networth.ActivityTest do
   test "the log is append-only", ctx do
     account!(ctx.scope)
 
-    for sql <- ["UPDATE activity_events SET action = 'x.y'", "DELETE FROM activity_events"] do
+    for sql <- ["UPDATE activity_log SET action = 'x.y'", "DELETE FROM activity_log"] do
       assert {:error, %Postgrex.Error{postgres: %{message: message}}} = DB.query(sql)
       assert message =~ "append-only"
     end

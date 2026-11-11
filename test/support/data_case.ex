@@ -19,7 +19,7 @@ defmodule Networth.DataCase do
     DB.query!("""
     TRUNCATE users, user_tokens, workspaces, workspace_members, workspace_invitations,
       accounts, categories, tags, transactions, ledger_entries, exchanges, transaction_tags,
-      activity_events, budgets
+      activity_log, budgets
     RESTART IDENTITY CASCADE
     """)
 
