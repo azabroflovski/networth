@@ -441,6 +441,26 @@ defmodule Networth.Web.RouterTest do
              request(:get, members_path, nil, bob)
   end
 
+  test "every path requires a token except the public ones" do
+    {token, ws} = register("paths@example.com")
+
+    for path <- ["/api/me", "/api/workspaces", "/api/nope", "/api/workspaces/#{ws}/accounts"] do
+      assert {401, %{"error" => "unauthorized"}} = request(:get, path), path
+    end
+
+    assert {200, _} = request(:get, "/api/currencies")
+    assert {200, _} = request(:get, "/health")
+
+    assert {401, _} =
+             request(:post, "/api/login", %{email: "paths@example.com", password: "nope"})
+
+    assert {404, %{"error" => "not_found"}} =
+             request(:get, "/api/workspaces/#{ws}/nope", nil, token)
+
+    assert {404, %{"error" => "not_found"}} =
+             request(:get, "/api/workspaces/not-a-uuid/accounts", nil, token)
+  end
+
   test "health check" do
     assert {200, %{"status" => "ok"}} = request(:get, "/health")
   end

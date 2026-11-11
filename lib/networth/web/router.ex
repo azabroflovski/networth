@@ -1,468 +1,113 @@
 defmodule Networth.Web.Router do
   @moduledoc """
-  JSON API. Handlers only authenticate, call a domain function and render
-  its result; all rules live in the domain modules.
+  JSON API entry point: public routes, the signed-in user's routes, and
+  everything inside a workspace forwarded to `Networth.Web.WorkspaceRouter`.
+
+  Handlers only call a domain function and render its result; all rules
+  live in the domain modules. Every path except the public ones requires a
+  bearer token (`Networth.Web.Auth`).
   """
 
   use Plug.Router
   use Plug.ErrorHandler
 
-  alias Networth.{
-    Accounts,
-    Activity,
-    Budgets,
-    Categories,
-    Currencies,
-    Ledger,
-    Reports,
-    Tags,
-    Users,
-    Workspaces
-  }
+  import Networth.Web.{Auth, Response}
 
+  alias Networth.{Currencies, DB, Users, Workspaces}
   alias Networth.Web.JSON, as: View
 
   plug :match
   plug Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason
+  plug :fetch_query_params
+  plug :authenticate
   plug :dispatch
 
-  # Auth
+  # Public
+
+  get "/health" do
+    case DB.ping() do
+      :ok -> json(conn, 200, %{status: "ok"})
+      :error -> json(conn, 503, %{status: "database_unavailable"})
+    end
+  end
+
+  get "/api/currencies" do
+    render_list(conn, Currencies.list(), :currencies, &View.currency/1)
+  end
 
   post "/api/register" do
     case Users.register(conn.body_params) do
       {:ok, %{user: user, workspace: workspace, token: token}} ->
-        send_json(conn, 201, %{
+        json(conn, 201, %{
           user: View.user(user),
           workspace: View.workspace(workspace),
           token: token
         })
 
       error ->
-        render_error(error, conn)
+        error(conn, error)
     end
   end
 
   post "/api/login" do
     case Users.login(conn.body_params["email"], conn.body_params["password"], conn.remote_ip) do
       {:ok, user, token} ->
-        send_json(conn, 200, %{user: View.user(user), token: token})
+        json(conn, 200, %{user: View.user(user), token: token})
 
       {:error, {:rate_limited, retry_after}} ->
         conn
         |> put_resp_header("retry-after", Integer.to_string(retry_after))
-        |> send_json(429, %{error: "too_many_attempts"})
+        |> json(429, %{error: "too_many_attempts"})
 
       error ->
-        render_error(error, conn)
+        error(conn, error)
     end
   end
 
+  # The signed-in user
+
   post "/api/logout" do
-    authenticated(conn, fn _user ->
-      conn |> bearer_token() |> Users.delete_token()
-      send_resp(conn, 204, "")
-    end)
+    :ok = Users.delete_token(conn.assigns.token)
+    send_resp(conn, 204, "")
   end
 
   get "/api/me" do
-    authenticated(conn, fn user ->
-      send_json(conn, 200, %{
-        user: View.user(user),
-        workspaces: Enum.map(Workspaces.list_for_user(user.id), &View.workspace/1)
-      })
-    end)
-  end
+    user = conn.assigns.current_user
 
-  get "/health" do
-    case Networth.DB.ping() do
-      :ok -> send_json(conn, 200, %{status: "ok"})
-      :error -> send_json(conn, 503, %{status: "database_unavailable"})
-    end
+    json(conn, 200, %{
+      user: View.user(user),
+      workspaces: Enum.map(Workspaces.list_for_user(user.id), &View.workspace/1)
+    })
   end
-
-  get "/api/currencies" do
-    send_json(conn, 200, %{currencies: Enum.map(Currencies.list(), &View.currency/1)})
-  end
-
-  # Workspaces and membership
 
   get "/api/workspaces" do
-    authenticated(conn, fn user ->
-      send_json(conn, 200, %{
-        workspaces: Enum.map(Workspaces.list_for_user(user.id), &View.workspace/1)
-      })
-    end)
+    render_list(
+      conn,
+      Workspaces.list_for_user(conn.assigns.current_user.id),
+      :workspaces,
+      &View.workspace/1
+    )
   end
 
   post "/api/workspaces" do
-    authenticated(conn, fn user ->
-      Workspaces.create(user.id, conn.body_params)
-      |> render(conn, 201, :workspace, &View.workspace/1)
-    end)
+    result = Workspaces.create(conn.assigns.current_user.id, conn.body_params)
+    render(conn, result, :workspace, &View.workspace/1, 201)
   end
 
   get "/api/invitations" do
-    authenticated(conn, fn user ->
-      send_json(conn, 200, %{
-        invitations: Enum.map(Workspaces.pending_invitations(user), &View.invitation/1)
-      })
-    end)
+    invitations = Workspaces.pending_invitations(conn.assigns.current_user)
+    render_list(conn, invitations, :invitations, &View.invitation/1)
   end
 
   post "/api/invitations/:id/accept" do
-    authenticated(conn, fn user ->
-      Workspaces.accept_invitation(user, id) |> render(conn, 200, :workspace, &View.workspace/1)
-    end)
+    result = Workspaces.accept_invitation(conn.assigns.current_user, id)
+    render(conn, result, :workspace, &View.workspace/1)
   end
 
-  get "/api/workspaces/:wid" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{workspace: View.workspace(Workspaces.get(scope))})
-    end)
-  end
-
-  patch "/api/workspaces/:wid" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.update(scope, conn.body_params)
-      |> render(conn, 200, :workspace, &View.workspace/1)
-    end)
-  end
-
-  delete "/api/workspaces/:wid" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.schedule_deletion(scope, conn.body_params)
-      |> render(conn, 202, :workspace, &View.workspace/1)
-    end)
-  end
-
-  post "/api/workspaces/:wid/restore" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.cancel_deletion(scope) |> render(conn, 200, :workspace, &View.workspace/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/members" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{members: Enum.map(Workspaces.list_members(scope), &View.member/1)})
-    end)
-  end
-
-  patch "/api/workspaces/:wid/members/:user_id" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.update_member(scope, user_id, conn.body_params)
-      |> render(conn, 200, :member, &View.member/1)
-    end)
-  end
-
-  delete "/api/workspaces/:wid/members/:user_id" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.remove_member(scope, user_id) |> render_empty(conn)
-    end)
-  end
-
-  get "/api/workspaces/:wid/invitations" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.list_invitations(scope) |> render_list(conn, :invitations, &View.invitation/1)
-    end)
-  end
-
-  post "/api/workspaces/:wid/invitations" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.invite(scope, conn.body_params)
-      |> render(conn, 201, :invitation, &View.invitation/1)
-    end)
-  end
-
-  delete "/api/workspaces/:wid/invitations/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Workspaces.revoke_invitation(scope, id) |> render_empty(conn)
-    end)
-  end
-
-  get "/api/workspaces/:wid/activity" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-
-      case Activity.list(scope, conn.query_params) do
-        {:ok, %{events: events, next_cursor: next_cursor}} ->
-          send_json(conn, 200, %{
-            events: Enum.map(events, &View.activity_event/1),
-            next_cursor: next_cursor
-          })
-
-        error ->
-          render_error(error, conn)
-      end
-    end)
-  end
-
-  # Accounts
-
-  get "/api/workspaces/:wid/accounts" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{accounts: Enum.map(Accounts.list(scope), &View.account/1)})
-    end)
-  end
-
-  post "/api/workspaces/:wid/accounts" do
-    in_workspace(conn, wid, fn scope ->
-      Accounts.create(scope, conn.body_params) |> render(conn, 201, :account, &View.account/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/accounts/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Accounts.get(scope, id) |> render(conn, 200, :account, &View.account/1)
-    end)
-  end
-
-  patch "/api/workspaces/:wid/accounts/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Accounts.update(scope, id, conn.body_params) |> render(conn, 200, :account, &View.account/1)
-    end)
-  end
-
-  post "/api/workspaces/:wid/accounts/:id/adjust" do
-    in_workspace(conn, wid, fn scope ->
-      case Ledger.adjust_balance(scope, id, conn.body_params) do
-        {:ok, nil} -> send_json(conn, 200, %{transaction: nil})
-        result -> render(result, conn, 201, :transaction, &View.transaction/1)
-      end
-    end)
-  end
-
-  get "/api/workspaces/:wid/accounts/:id/activity" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-
-      Reports.account_activity(scope, id, conn.query_params)
-      |> render(conn, 200, :activity, &View.account_activity/1)
-    end)
-  end
-
-  # Reports
-
-  get "/api/workspaces/:wid/reports/income-expense" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-
-      Reports.income_expense(scope, conn.query_params)
-      |> render(conn, 200, :report, &View.income_expense/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/budgets" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{budgets: Enum.map(Budgets.list(scope), &View.budget/1)})
-    end)
-  end
-
-  put "/api/workspaces/:wid/budgets" do
-    in_workspace(conn, wid, fn scope ->
-      Budgets.set(scope, conn.body_params) |> render(conn, 200, :budget, &View.budget/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/reports/budget" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-
-      Budgets.report(scope, conn.query_params)
-      |> render(conn, 200, :report, &View.budget_report/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/reports/net-worth" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-      Reports.net_worth(scope, conn.query_params) |> render(conn, 200, :report, &View.net_worth/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/reports/balances" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-      Reports.balances(scope, conn.query_params) |> render(conn, 200, :report, &View.balances/1)
-    end)
-  end
-
-  # Transactions
-
-  get "/api/workspaces/:wid/transactions" do
-    in_workspace(conn, wid, fn scope ->
-      conn = fetch_query_params(conn)
-
-      case Ledger.list(scope, conn.query_params) do
-        {:ok, %{transactions: transactions, next_cursor: next_cursor}} ->
-          send_json(conn, 200, %{
-            transactions: Enum.map(transactions, &View.transaction/1),
-            next_cursor: next_cursor
-          })
-
-        error ->
-          render_error(error, conn)
-      end
-    end)
-  end
-
-  post "/api/workspaces/:wid/transactions" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.post(scope, conn.body_params) |> render(conn, 201, :transaction, &View.transaction/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/transactions/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.get(scope, id) |> render(conn, 200, :transaction, &View.transaction/1)
-    end)
-  end
-
-  patch "/api/workspaces/:wid/transactions/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.update(scope, id, conn.body_params)
-      |> render(conn, 200, :transaction, &View.transaction/1)
-    end)
-  end
-
-  post "/api/workspaces/:wid/transactions/:id/correct" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.correct(scope, id, conn.body_params)
-      |> render(conn, 201, :transaction, &View.transaction/1)
-    end)
-  end
-
-  delete "/api/workspaces/:wid/transactions/:id" do
-    in_workspace(conn, wid, fn scope ->
-      case Ledger.reverse(scope, id) do
-        {:ok, _reversal} -> send_resp(conn, 204, "")
-        error -> render_error(error, conn)
-      end
-    end)
-  end
-
-  post "/api/workspaces/:wid/transactions/:id/reverse" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.reverse(scope, id, conn.body_params)
-      |> render(conn, 201, :transaction, &View.transaction/1)
-    end)
-  end
-
-  put "/api/workspaces/:wid/transactions/:id/tags" do
-    in_workspace(conn, wid, fn scope ->
-      Ledger.set_tags(scope, id, conn.body_params)
-      |> render(conn, 200, :transaction, &View.transaction/1)
-    end)
-  end
-
-  # Categories and tags
-
-  get "/api/workspaces/:wid/categories" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{categories: Enum.map(Categories.list(scope), &View.category/1)})
-    end)
-  end
-
-  post "/api/workspaces/:wid/categories" do
-    in_workspace(conn, wid, fn scope ->
-      Categories.create(scope, conn.body_params) |> render(conn, 201, :category, &View.category/1)
-    end)
-  end
-
-  patch "/api/workspaces/:wid/categories/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Categories.update(scope, id, conn.body_params)
-      |> render(conn, 200, :category, &View.category/1)
-    end)
-  end
-
-  get "/api/workspaces/:wid/tags" do
-    in_workspace(conn, wid, fn scope ->
-      send_json(conn, 200, %{tags: Enum.map(Tags.list(scope), &View.tag/1)})
-    end)
-  end
-
-  post "/api/workspaces/:wid/tags" do
-    in_workspace(conn, wid, fn scope ->
-      Tags.create(scope, conn.body_params) |> render(conn, 201, :tag, &View.tag/1)
-    end)
-  end
-
-  patch "/api/workspaces/:wid/tags/:id" do
-    in_workspace(conn, wid, fn scope ->
-      Tags.update(scope, id, conn.body_params) |> render(conn, 200, :tag, &View.tag/1)
-    end)
-  end
-
-  delete "/api/workspaces/:wid/tags/:id" do
-    in_workspace(conn, wid, fn scope -> Tags.delete(scope, id) |> render_empty(conn) end)
-  end
+  forward "/api/workspaces/:wid", to: Networth.Web.WorkspaceRouter
 
   match _ do
-    send_json(conn, 404, %{error: "not_found"})
-  end
-
-  # Helpers
-
-  defp authenticated(conn, fun) do
-    case bearer_token(conn) && Users.get_by_token(bearer_token(conn)) do
-      %{} = user -> fun.(user)
-      _ -> send_json(conn, 401, %{error: "unauthorized"})
-    end
-  end
-
-  defp in_workspace(conn, workspace_id, fun) do
-    authenticated(conn, fn user ->
-      case Workspaces.authorize(user.id, workspace_id) do
-        {:ok, scope} -> fun.(scope)
-        {:error, reason} -> render_error({:error, reason}, conn)
-      end
-    end)
-  end
-
-  defp bearer_token(conn) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] -> token
-      _ -> nil
-    end
-  end
-
-  defp render({:ok, data}, conn, status, key, view),
-    do: send_json(conn, status, %{key => view.(data)})
-
-  defp render(error, conn, _status, _key, _view), do: render_error(error, conn)
-
-  defp render_list({:ok, items}, conn, key, view),
-    do: send_json(conn, 200, %{key => Enum.map(items, view)})
-
-  defp render_list(error, conn, _key, _view), do: render_error(error, conn)
-
-  defp render_empty(:ok, conn), do: send_resp(conn, 204, "")
-  defp render_empty(error, conn), do: render_error(error, conn)
-
-  defp render_error({:error, {:invalid, errors}}, conn),
-    do: send_json(conn, 422, %{error: "invalid", errors: View.validation_errors(errors)})
-
-  defp render_error({:error, :invalid_credentials}, conn),
-    do: send_json(conn, 401, %{error: "invalid_credentials"})
-
-  defp render_error({:error, :not_found}, conn), do: send_json(conn, 404, %{error: "not_found"})
-  defp render_error({:error, :forbidden}, conn), do: send_json(conn, 403, %{error: "forbidden"})
-
-  defp render_error({:error, :already_reversed}, conn),
-    do: send_json(conn, 409, %{error: "already_reversed"})
-
-  defp render_error({:error, :id_taken}, conn), do: send_json(conn, 409, %{error: "id_taken"})
-
-  defp render_error({:error, :last_owner}, conn),
-    do: send_json(conn, 409, %{error: "last_owner"})
-
-  defp render_error({:error, :idempotency_key_reused}, conn),
-    do: send_json(conn, 409, %{error: "idempotency_key_reused"})
-
-  defp send_json(conn, status, body) do
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(status, Jason.encode_to_iodata!(body))
+    json(conn, 404, %{error: "not_found"})
   end
 
   @impl Plug.ErrorHandler
@@ -474,6 +119,6 @@ defmodule Networth.Web.Router do
         _ -> {conn.status, "internal_error"}
       end
 
-    send_json(conn, status, %{error: error})
+    json(conn, status, %{error: error})
   end
 end
