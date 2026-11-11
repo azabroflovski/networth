@@ -9,7 +9,7 @@ defmodule Networth.Budgets do
   subcategories.
   """
 
-  alias Networth.{Activity, Categories, DB, Params, Reports, Scope, Workspaces}
+  alias Networth.{Activity, Categories, DB, Money, Params, Reports, Scope, Workspaces}
 
   @doc "All limits with their history, newest month first."
   def list(%Scope{} = scope) do
@@ -51,7 +51,7 @@ defmodule Networth.Budgets do
           )
 
         {:ok, category} = Categories.get(scope, category_id)
-        format = &(&1 && Activity.money(&1, currency))
+        format = &(&1 && Money.format(&1, currency))
 
         Activity.record(scope, "budget.set", "category", category_id,
           changes: %{"limit" => [format.(previous), format.(amount)]},

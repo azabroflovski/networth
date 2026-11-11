@@ -1,7 +1,7 @@
 defmodule Networth.Ledger.Adjustment do
   @moduledoc "Reconciling an account with its real balance through an `adjustment`."
 
-  alias Networth.{Accounts, Activity, DB, Params, Scope, Workspaces}
+  alias Networth.{Accounts, Activity, DB, Money, Params, Scope, Workspaces}
   alias Networth.Ledger.Posting
 
   def adjust_balance(%Scope{} = scope, account_id, params) do
@@ -71,12 +71,12 @@ defmodule Networth.Ledger.Adjustment do
         "account_name" => account.name,
         "transaction_id" => adjustment.id,
         "currency" => account.currency,
-        "difference" => Activity.money(difference, account.currency)
+        "difference" => Money.format(difference, account.currency)
       },
       changes: %{
         "balance" => [
-          Activity.money(actual - difference, account.currency),
-          Activity.money(actual, account.currency)
+          Money.format(actual - difference, account.currency),
+          Money.format(actual, account.currency)
         ]
       }
     )

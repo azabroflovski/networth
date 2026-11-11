@@ -13,7 +13,7 @@ defmodule Networth.Activity do
   events is stored as decimal strings with their currency.
   """
 
-  alias Networth.{Currencies, DB, Money, Params, Scope}
+  alias Networth.{DB, Params, Scope}
 
   def record(%Scope{} = scope, action, subject_type, subject_id, opts \\ []) do
     DB.query!(
@@ -41,8 +41,6 @@ defmodule Networth.Activity do
       {to_string(field), [Map.get(old, field), Map.get(new, field)]}
     end
   end
-
-  def money(amount, currency), do: Money.format(amount, Currencies.exponent!(currency))
 
   @doc """
   Events of the workspace, newest first. Filters: subject_id, actor_id.

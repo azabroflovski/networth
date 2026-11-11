@@ -28,6 +28,13 @@ defmodule Networth.Money do
 
   def parse(_value, _exponent), do: {:error, :invalid}
 
+  @doc """
+  Minor units as a decimal string in major units: `format(1250, 2)` and
+  `format(1250, "USD")` give `"12.50"`.
+  """
+  def format(minor, currency) when is_binary(currency),
+    do: format(minor, Networth.Currencies.exponent!(currency))
+
   def format(minor, exponent) when is_integer(minor) and exponent == 0,
     do: Integer.to_string(minor)
 

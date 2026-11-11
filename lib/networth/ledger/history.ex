@@ -1,7 +1,7 @@
 defmodule Networth.Ledger.History do
   @moduledoc "Reading transactions: one by id, a filtered page, and the snapshot for the activity log."
 
-  alias Networth.{Activity, DB, Params, Scope}
+  alias Networth.{DB, Money, Params, Scope}
   alias Networth.Ledger.Posting
 
   @select """
@@ -148,7 +148,7 @@ defmodule Networth.Ledger.History do
             "account_id" => e.account_id,
             "account_name" => e.account_name,
             "currency" => e.currency,
-            "amount" => Activity.money(e.amount, e.currency)
+            "amount" => Money.format(e.amount, e.currency)
           }
         end
     }

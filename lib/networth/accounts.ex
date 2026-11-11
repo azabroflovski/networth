@@ -12,7 +12,7 @@ defmodule Networth.Accounts do
   account's natural sign: money held for assets, money owed for liabilities.
   """
 
-  alias Networth.{Activity, DB, Ledger, Params, Scope, Workspaces}
+  alias Networth.{Activity, DB, Ledger, Money, Params, Scope, Workspaces}
 
   @user_types ~w(cash bank card deposit savings receivable credit_card loan payable)
 
@@ -118,7 +118,7 @@ defmodule Networth.Accounts do
               "name" => account.name,
               "type" => account.type,
               "currency" => account.currency,
-              "opening_balance" => Activity.money(account.balance, account.currency)
+              "opening_balance" => Money.format(account.balance, account.currency)
             }
           )
 

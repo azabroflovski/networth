@@ -4,7 +4,7 @@ defmodule Networth.Web.JSON do
   decimal strings in major units together with their currency.
   """
 
-  alias Networth.{Currencies, Money}
+  alias Networth.Money
 
   def user(u), do: Map.take(u, [:id, :email, :name, :inserted_at])
 
@@ -20,7 +20,7 @@ defmodule Networth.Web.JSON do
   def account(a) do
     a
     |> Map.take([:id, :name, :type, :kind, :currency, :archived_at, :inserted_at])
-    |> Map.put(:balance, money(a.balance, a.currency))
+    |> Map.put(:balance, Money.format(a.balance, a.currency))
   end
 
   def category(c),
@@ -56,19 +56,19 @@ defmodule Networth.Web.JSON do
   defp entry(e) do
     e
     |> Map.take([:account_id, :account_name, :account_type, :currency, :category_id])
-    |> Map.put(:amount, money(e.amount, e.currency))
+    |> Map.put(:amount, Money.format(e.amount, e.currency))
   end
 
   defp exchange(x) do
     %{
       from_account_id: x.from_account_id,
-      from_amount: money(x.from_amount, x.from_currency),
+      from_amount: Money.format(x.from_amount, x.from_currency),
       from_currency: x.from_currency,
       to_account_id: x.to_account_id,
-      to_amount: money(x.to_amount, x.to_currency),
+      to_amount: Money.format(x.to_amount, x.to_currency),
       to_currency: x.to_currency,
       rate: Decimal.to_string(x.rate, :normal),
-      fee_amount: money(x.fee_amount, x.from_currency)
+      fee_amount: Money.format(x.fee_amount, x.from_currency)
     }
   end
 
@@ -82,7 +82,7 @@ defmodule Networth.Web.JSON do
             currency: c.currency,
             income: breakdown(c.income, c.currency),
             expense: breakdown(c.expense, c.currency),
-            net: money(c.net, c.currency)
+            net: Money.format(c.net, c.currency)
           }
         end)
     }
@@ -90,14 +90,15 @@ defmodule Networth.Web.JSON do
 
   defp breakdown(b, currency) do
     %{
-      total: money(b.total, currency),
+      total: Money.format(b.total, currency),
       categories:
         Enum.map(b.categories, fn c ->
           %{
             category_id: c.category_id,
             name: c.name,
-            total: money(c.total, currency),
-            subcategories: Enum.map(c.subcategories, &%{&1 | total: money(&1.total, currency)})
+            total: Money.format(c.total, currency),
+            subcategories:
+              Enum.map(c.subcategories, &%{&1 | total: Money.format(&1.total, currency)})
           }
         end)
     }
@@ -108,7 +109,7 @@ defmodule Networth.Web.JSON do
     |> Map.take([:id, :category_id, :currency, :updated_by, :updated_at])
     |> Map.merge(%{
       month: Calendar.strftime(b.starts_on, "%Y-%m"),
-      amount: money(b.amount, b.currency)
+      amount: Money.format(b.amount, b.currency)
     })
   end
 
@@ -121,9 +122,9 @@ defmodule Networth.Web.JSON do
             category_id: b.category_id,
             name: b.name,
             currency: b.currency,
-            limit: money(b.limit, b.currency),
-            spent: money(b.spent, b.currency),
-            remaining: money(b.remaining, b.currency),
+            limit: Money.format(b.limit, b.currency),
+            spent: Money.format(b.spent, b.currency),
+            remaining: Money.format(b.remaining, b.currency),
             percent: b.percent
           }
         end)
@@ -137,9 +138,9 @@ defmodule Networth.Web.JSON do
         Enum.map(report.currencies, fn c ->
           %{
             currency: c.currency,
-            assets: money(c.assets, c.currency),
-            liabilities: money(c.liabilities, c.currency),
-            net: money(c.net, c.currency)
+            assets: Money.format(c.assets, c.currency),
+            liabilities: Money.format(c.liabilities, c.currency),
+            net: Money.format(c.net, c.currency)
           }
         end)
     }
@@ -154,14 +155,12 @@ defmodule Networth.Web.JSON do
       account: account(r.account),
       from: r.from,
       to: r.to,
-      opening_balance: money(r.opening_balance, currency),
-      inflow: money(r.inflow, currency),
-      outflow: money(r.outflow, currency),
-      closing_balance: money(r.closing_balance, currency)
+      opening_balance: Money.format(r.opening_balance, currency),
+      inflow: Money.format(r.inflow, currency),
+      outflow: Money.format(r.outflow, currency),
+      closing_balance: Money.format(r.closing_balance, currency)
     }
   end
-
-  defp money(amount, currency), do: Money.format(amount, Currencies.exponent!(currency))
 
   @doc """
   Validation errors for the client: per field the stable `code`, its
