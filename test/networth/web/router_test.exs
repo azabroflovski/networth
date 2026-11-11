@@ -466,6 +466,12 @@ defmodule Networth.Web.RouterTest do
     assert {200, %{"status" => "ok"}} = request(:get, "/health")
   end
 
+  test "every response carries a request id" do
+    conn = Router.call(conn(:get, "/health"), Router.init([]))
+    assert [id] = get_resp_header(conn, "x-request-id")
+    assert byte_size(id) > 0
+  end
+
   test "validation errors carry a code, details and a message" do
     {token, ws} = register("codes@example.com")
 

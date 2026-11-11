@@ -16,6 +16,8 @@ defmodule Networth.Web.Router do
   alias Networth.{Currencies, DB, Users, Workspaces}
   alias Networth.Web.Serializer
 
+  plug Plug.RequestId
+  plug Plug.Logger
   plug :match
   plug Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason
   plug :fetch_query_params
