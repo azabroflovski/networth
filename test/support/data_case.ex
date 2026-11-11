@@ -37,6 +37,25 @@ defmodule Networth.DataCase do
     %{user: user, workspace: workspace, scope: scope}
   end
 
+  @doc "A user with cash UZS (1 000 000), an empty UZS card and cash USD (500)."
+  def ledger_setup(_context) do
+    ctx = register!()
+
+    cash =
+      account!(ctx.scope, %{
+        "name" => "Cash UZS",
+        "currency" => "UZS",
+        "opening_balance" => "1000000"
+      })
+
+    card = account!(ctx.scope, %{"name" => "Card UZS", "type" => "card", "currency" => "UZS"})
+
+    usd =
+      account!(ctx.scope, %{"name" => "Cash USD", "currency" => "USD", "opening_balance" => "500"})
+
+    Map.merge(ctx, %{cash: cash, card: card, usd: usd})
+  end
+
   @doc "A well-formed UUID that no row has."
   def missing_id, do: "00000000-0000-7000-8000-000000000000"
 

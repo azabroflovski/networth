@@ -92,12 +92,17 @@ _build/prod/rel/networth/bin/networth start                                # и�
 
 ## Код
 
+Модуль контекста (`ledger.ex`, `workspaces.ex`) — публичный API; когда он разрастается, части уходят в одноимённую папку, а модуль делегирует им (`defdelegate`). Тесты повторяют эту раскладку.
+
 ```
 lib/networth/
-  db.ex              пул Postgrex, запросы, транзакции
-  migrator.ex        применение SQL-миграций
+  application.ex     супервизор: пул БД, счётчики попыток, обслуживание, HTTP
+  db.ex              пул Postgrex, запросы, транзакции, хелперы WHERE
+  db/
+    migrator.ex      применение SQL-миграций
+    uuid.ex          UUID как строки; Postgrex-расширение для типа uuid
+    types.ex         типы Postgrex с этим расширением
   release.ex         миграции в собранном релизе
-  uuid.ex            UUID как строки; Postgrex-расширение для типа uuid
   money.ex           разбор/форматирование сумм, курс обмена
   currencies.ex      справочник валют
   params.ex          проверка внешних параметров
@@ -105,9 +110,20 @@ lib/networth/
   users.ex           регистрация, вход, пароли, токены
   rate_limit.ex      счётчики попыток в ETS
   maintenance.ex     ежечасно: просроченные токены, удаление назначенных workspace
-  workspaces.ex      workspaces, членство, приглашения, authorize/2
+  workspaces.ex      создание, authorize/2, настройки; API частей ниже
+  workspaces/
+    members.ex       участники и роли, «всегда есть owner»
+    invitations.ex   приглашения
+    deletion.ex      отложенное удаление и очистка
   accounts.ex        счета, системные счета, балансы
-  ledger.ex          проведение операций, сторно, история
+  ledger.ex          публичный API ledger
+  ledger/
+    posting.ex       проведение: параметры, проводки, запись, идемпотентность
+    reversal.ex      сторно
+    correction.ex    исправление
+    adjustment.ex    сверка баланса
+    editing.ex       описание и теги проведённой операции
+    history.ex       чтение: get, list, курсор, снимок для журнала
   activity.ex        журнал активности workspace
   reports.ex         отчёты (только чтение)
   budgets.ex         бюджеты: лимиты и отчёт исполнения
