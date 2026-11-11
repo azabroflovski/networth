@@ -361,6 +361,7 @@ defmodule Networth.Web.RouterTest do
       |> Router.call(Router.init([]))
 
     assert conn.status == 429
+    assert Jason.decode!(conn.resp_body) == %{"error" => "rate_limited"}
     assert [retry_after] = get_resp_header(conn, "retry-after")
     assert String.to_integer(retry_after) > 0
 

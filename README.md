@@ -147,9 +147,17 @@ lib/networth/
 | `{:error, :not_found}` (в т. ч. чужой workspace) | 404 |
 | `{:error, :forbidden}` | 403 |
 | `{:error, :idempotency_key_reused \| :id_taken \| :last_owner \| :already_reversed}` | 409 |
+| `{:error, {:rate_limited, seconds}}` | 429, `retry-after` |
 | нет или неверный токен | 401 |
 
 ## HTTP API
+
+### Формат ответов
+
+- Успех — объект под именем ресурса: `{"account": {...}}`; список — `{"accounts": [...]}`; страница с курсором — `{"transactions": [...], "next_cursor": "..." | null}`; отчёт — `{"report": {...}}`; нет содержимого — 204.
+- Ошибка — `{"error": "<код>"}`, где код — имя ошибки ядра (`not_found`, `forbidden`, `last_owner`, `rate_limited`, …). У ошибки валидации (422) добавляется `"errors"` по полям (ниже). 429 приходит с заголовком `retry-after`.
+- Значения: id — UUID-строки; деньги — десятичные строки с валютой рядом (`"amount": "12.50", "currency": "USD"`); даты — `YYYY-MM-DD`; время — ISO 8601 в UTC.
+- `/health` — исключение по договорённости health-проверок: `{"status": "ok"}` (200) или `{"status": "database_unavailable"}` (503).
 
 Ошибка валидации — 422 со всеми неверными полями сразу; у каждого поля стабильный `code`, детали и английский `message`. Клиент показывает текст на своём языке по `code`:
 
@@ -168,7 +176,7 @@ JSON. Все id — UUID-строки, суммы — десятичные ст�
 |---|---|
 | `GET /health` | проверка соединения с БД, без авторизации |
 | `POST /api/register` | `{email, name, password, timezone?}` → пользователь, личный workspace, токен |
-| `POST /api/login`, `POST /api/logout` | вход / отзыв текущего токена; слишком много попыток — 429 с `retry-after` |
+| `POST /api/login`, `POST /api/logout` | вход / отзыв текущего токена; слишком много попыток — 429 `rate_limited` с `retry-after` |
 | `GET /api/me` | пользователь и его workspaces |
 | `GET /api/currencies` | справочник валют |
 | `GET/POST /api/workspaces` | список / создание `{name, timezone?}` |

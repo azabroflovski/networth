@@ -46,6 +46,12 @@ defmodule Networth.Web.Response do
   def send_empty(conn, {:ok, _}), do: send_resp(conn, 204, "")
   def send_empty(conn, error), do: send_error(conn, error)
 
+  def send_error(conn, {:error, {:rate_limited, retry_after}}) do
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> send_json(429, %{error: "rate_limited"})
+  end
+
   def send_error(conn, {:error, {:invalid, errors}}),
     do: send_json(conn, 422, %{error: "invalid", errors: Serializer.validation_errors(errors)})
 

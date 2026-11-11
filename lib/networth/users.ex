@@ -57,7 +57,7 @@ defmodule Networth.Users do
   Password login with brute-force protection: too many failed attempts for
   an email, or too many attempts from one client address, are refused with
   `{:error, {:rate_limited, retry_after_seconds}}` before checking the
-  password. Returns the user and a new token.
+  password. Returns `{:ok, %{user: user, token: token}}`.
   """
   def login(email, password, client_ip) do
     limits = Application.fetch_env!(:networth, :login_limits)
@@ -73,7 +73,7 @@ defmodule Networth.Users do
       case authenticate(email, password) do
         {:ok, user} ->
           RateLimit.reset(email_key)
-          {:ok, user, create_token(user.id)}
+          {:ok, %{user: user, token: create_token(user.id)}}
 
         error ->
           RateLimit.record(email_key, email_window)

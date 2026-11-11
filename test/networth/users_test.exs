@@ -145,7 +145,7 @@ defmodule Networth.UsersTest do
     end
 
     test "returns the user and a working token" do
-      assert {:ok, %{email: "dave@example.com"}, token} =
+      assert {:ok, %{user: %{email: "dave@example.com"}, token: token}} =
                Users.login("dave@example.com", "correct horse", @ip)
 
       assert %{email: "dave@example.com"} = Users.get_by_token(token)
@@ -165,22 +165,24 @@ defmodule Networth.UsersTest do
 
       # Another account is not affected.
       register!("erin@example.com")
-      assert {:ok, _, _} = Users.login("erin@example.com", "correct horse", @ip)
+      assert {:ok, %{user: _, token: _}} = Users.login("erin@example.com", "correct horse", @ip)
     end
 
     test "a successful login resets the failure count" do
       for _ <- 1..4, do: Users.login("dave@example.com", "wrong", @ip)
-      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", @ip)
+      assert {:ok, %{user: _, token: _}} = Users.login("dave@example.com", "correct horse", @ip)
       for _ <- 1..4, do: Users.login("dave@example.com", "wrong", @ip)
 
-      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", @ip)
+      assert {:ok, %{user: _, token: _}} = Users.login("dave@example.com", "correct horse", @ip)
     end
 
     test "limits all attempts from one address" do
       for i <- 1..20, do: Users.login("nobody#{i}@example.com", "x", @ip)
 
       assert {:error, {:rate_limited, _}} = Users.login("dave@example.com", "correct horse", @ip)
-      assert {:ok, _, _} = Users.login("dave@example.com", "correct horse", {10, 0, 0, 2})
+
+      assert {:ok, %{user: _, token: _}} =
+               Users.login("dave@example.com", "correct horse", {10, 0, 0, 2})
     end
   end
 end
