@@ -24,43 +24,46 @@ defmodule Networth.Ledger.History do
   @not_reversed "t.type <> 'reversal' AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.reverses_id = t.id)"
 
   def list(%Scope{} = scope, params \\ %{}) do
-    with {:ok, account_id} <- Params.id(params, "account_id"),
-         {:ok, category_id} <- Params.id(params, "category_id"),
-         {:ok, tag_id} <- Params.id(params, "tag_id"),
-         {:ok, type} <-
-           Params.one_of(
-             params,
-             "type",
-             Posting.postable_types() ++ ~w(opening_balance adjustment reversal)
-           ),
-         {:ok, from} <- Params.date(params, "from", nil),
-         {:ok, to} <- Params.date(params, "to", nil),
-         {:ok, limit} <- Params.integer(params, "limit", 50, 1, 200),
-         {:ok, cursor} <- decode_cursor(params["cursor"]) do
+    with {:ok, f} <-
+           Params.all(
+             account_id: Params.id(params, "account_id"),
+             category_id: Params.id(params, "category_id"),
+             tag_id: Params.id(params, "tag_id"),
+             type:
+               Params.one_of(
+                 params,
+                 "type",
+                 Posting.postable_types() ++ ~w(opening_balance adjustment reversal)
+               ),
+             from: Params.date(params, "from", nil),
+             to: Params.date(params, "to", nil),
+             limit: Params.integer(params, "limit", 50, 1, 200),
+             cursor: decode_cursor(params["cursor"])
+           ) do
       include_reversed = params["include_reversed"] in [true, "true"]
 
       {conditions, args} =
         {["t.workspace_id = $1" | if(include_reversed, do: [], else: [@not_reversed])],
          [scope.workspace_id]}
         |> DB.where(
-          account_id,
+          f.account_id,
           &"EXISTS (SELECT 1 FROM ledger_entries e WHERE e.transaction_id = t.id AND e.account_id = #{&1})"
         )
         |> DB.where(
-          category_id,
+          f.category_id,
           &"""
           EXISTS (SELECT 1 FROM ledger_entries e WHERE e.transaction_id = t.id
             AND e.category_id IN (SELECT id FROM categories WHERE id = #{&1} OR parent_id = #{&1}))
           """
         )
         |> DB.where(
-          tag_id,
+          f.tag_id,
           &"EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = #{&1})"
         )
-        |> DB.where(type, &"t.type = #{&1}")
-        |> DB.where(from, &"t.occurred_on >= #{&1}")
-        |> DB.where(to, &"t.occurred_on <= #{&1}")
-        |> DB.where(cursor, fn [date, id] -> "(t.occurred_on, t.id) < (#{date}, #{id})" end)
+        |> DB.where(f.type, &"t.type = #{&1}")
+        |> DB.where(f.from, &"t.occurred_on >= #{&1}")
+        |> DB.where(f.to, &"t.occurred_on <= #{&1}")
+        |> DB.where(f.cursor, fn [date, id] -> "(t.occurred_on, t.id) < (#{date}, #{id})" end)
 
       sql =
         @select <>
@@ -68,7 +71,7 @@ defmodule Networth.Ledger.History do
           " ORDER BY t.occurred_on DESC, t.id DESC LIMIT $#{length(args) + 1}"
 
       # One extra row tells whether there is a next page.
-      {page, rest} = sql |> DB.all(args ++ [limit + 1]) |> Enum.split(limit)
+      {page, rest} = sql |> DB.all(args ++ [f.limit + 1]) |> Enum.split(f.limit)
       next_cursor = if rest != [], do: encode_cursor(List.last(page))
 
       {:ok, %{transactions: preload(page), next_cursor: next_cursor}}
@@ -87,7 +90,7 @@ defmodule Networth.Ledger.History do
          id when is_binary(id) <- Params.cast_id(id) do
       {:ok, {date, id}}
     else
-      _ -> Params.invalid("cursor", "is invalid")
+      _ -> Params.invalid("cursor", :invalid_cursor)
     end
   end
 

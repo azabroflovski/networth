@@ -13,8 +13,11 @@ defmodule Networth.Workspaces do
 
   @doc "Creates a workspace owned by `user_id`, seeded with default categories."
   def create(user_id, params) do
-    with {:ok, name} <- Params.string(params, "name", required: true),
-         {:ok, timezone} <- timezone(params, "UTC") do
+    with {:ok, %{name: name, timezone: timezone}} <-
+           Params.all(
+             name: Params.string(params, "name", required: true),
+             timezone: timezone(params, "UTC")
+           ) do
       DB.transaction(fn ->
         workspace =
           DB.one("INSERT INTO workspaces (name, timezone) VALUES ($1, $2) RETURNING *", [
@@ -78,8 +81,11 @@ defmodule Networth.Workspaces do
     current = get(scope)
 
     with :ok <- Scope.require_owner(scope),
-         {:ok, name} <- Params.string(params, "name", default: current.name),
-         {:ok, timezone} <- timezone(params, current.timezone) do
+         {:ok, %{name: name, timezone: timezone}} <-
+           Params.all(
+             name: Params.string(params, "name", default: current.name),
+             timezone: timezone(params, current.timezone)
+           ) do
       DB.transaction(fn ->
         DB.query!("UPDATE workspaces SET name = $2, timezone = $3 WHERE id = $1", [
           scope.workspace_id,
@@ -118,7 +124,7 @@ defmodule Networth.Workspaces do
     with {:ok, tz} <- Params.string(params, "timezone", default: default) do
       if MapSet.member?(timezones(), tz),
         do: {:ok, tz},
-        else: Params.invalid("timezone", "is not a known IANA time zone")
+        else: Params.invalid("timezone", :invalid_timezone)
     end
   end
 

@@ -22,7 +22,7 @@ defmodule Networth.UsersTest do
     test "rejects a duplicate email regardless of case and leaves nothing behind" do
       register!("bob@example.com")
 
-      assert {:error, {:invalid, %{"email" => "is already registered"}}} =
+      assert {:error, {:invalid, %{"email" => %{code: :already_exists}}}} =
                Users.register(%{
                  "email" => "BOB@example.com",
                  "name" => "Bob",
@@ -30,6 +30,17 @@ defmodule Networth.UsersTest do
                })
 
       assert %{n: 1} = DB.one("SELECT count(*) AS n FROM workspaces")
+    end
+
+    test "reports every invalid field at once" do
+      assert {:error, {:invalid, errors}} =
+               Users.register(%{"email" => "nope", "name" => " ", "password" => "short"})
+
+      assert %{
+               "email" => %{code: :invalid_email},
+               "name" => %{code: :blank},
+               "password" => %{code: :invalid_length, min: 8, max: 256}
+             } = errors
     end
 
     test "validates input" do

@@ -17,7 +17,7 @@ defmodule Networth.CategoriesTagsTest do
       {:ok, parent} = Categories.create(scope, %{"name" => "Pets", "kind" => "expense"})
       {:ok, child} = Categories.create(scope, %{"name" => "Vet", "parent_id" => parent.id})
 
-      assert {:error, {:invalid, %{"parent_id" => "must be a top-level category"}}} =
+      assert {:error, {:invalid, %{"parent_id" => %{code: :not_top_level}}}} =
                Categories.create(scope, %{"name" => "Deeper", "parent_id" => child.id})
 
       assert {:error, {:invalid, %{"kind" => _}}} =
@@ -52,7 +52,7 @@ defmodule Networth.CategoriesTagsTest do
     end
 
     test "names are unique per parent and kind, case-insensitively", %{scope: scope} do
-      assert {:error, {:invalid, %{"name" => "already exists"}}} =
+      assert {:error, {:invalid, %{"name" => %{code: :already_exists}}}} =
                Categories.create(scope, %{"name" => "food", "kind" => "expense"})
 
       assert {:ok, _} = Categories.create(scope, %{"name" => "Food", "kind" => "income"})
@@ -67,7 +67,7 @@ defmodule Networth.CategoriesTagsTest do
       assert {:ok, %{archived_at: %DateTime{}}} =
                Categories.update(scope, food, %{"archived" => true})
 
-      assert {:error, {:invalid, %{"category_id" => "is archived"}}} =
+      assert {:error, {:invalid, %{"category_id" => %{code: :archived}}}} =
                Ledger.post(scope, %{
                  "type" => "expense",
                  "account_id" => cash.id,
@@ -122,7 +122,7 @@ defmodule Networth.CategoriesTagsTest do
     test "names are unique per workspace, case-insensitively", %{scope: scope} do
       {:ok, _} = Tags.create(scope, %{"name" => "Home"})
 
-      assert {:error, {:invalid, %{"name" => "already exists"}}} =
+      assert {:error, {:invalid, %{"name" => %{code: :already_exists}}}} =
                Tags.create(scope, %{"name" => "home"})
 
       assert {:error, {:invalid, %{"color" => _}}} =

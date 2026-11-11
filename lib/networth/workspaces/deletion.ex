@@ -17,7 +17,7 @@ defmodule Networth.Workspaces.Deletion do
          :ok <-
            if(params["confirm"] == workspace.name,
              do: :ok,
-             else: Params.invalid("confirm", "must match the workspace name")
+             else: Params.invalid("confirm", :confirmation_mismatch)
            ) do
       DB.transaction(fn ->
         %{num_rows: scheduled} =

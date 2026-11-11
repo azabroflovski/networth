@@ -50,14 +50,14 @@ defmodule Networth.IsolationTest do
   test "writes cannot reference another workspace's data", ctx do
     s = ctx.alice.scope
 
-    assert {:error, {:invalid, %{"account_id" => "does not exist"}}} =
+    assert {:error, {:invalid, %{"account_id" => %{code: :not_found}}}} =
              Ledger.post(s, %{
                "type" => "expense",
                "account_id" => ctx.bob_cash.id,
                "amount" => "1"
              })
 
-    assert {:error, {:invalid, %{"to_account_id" => "does not exist"}}} =
+    assert {:error, {:invalid, %{"to_account_id" => %{code: :not_found}}}} =
              Ledger.post(s, %{
                "type" => "transfer",
                "from_account_id" => ctx.alice_cash.id,
@@ -65,7 +65,7 @@ defmodule Networth.IsolationTest do
                "amount" => "1"
              })
 
-    assert {:error, {:invalid, %{"category_id" => "does not exist"}}} =
+    assert {:error, {:invalid, %{"category_id" => %{code: :not_found}}}} =
              Ledger.post(s, %{
                "type" => "expense",
                "account_id" => ctx.alice_cash.id,
@@ -86,7 +86,7 @@ defmodule Networth.IsolationTest do
     assert Accounts.update(s, ctx.bob_cash.id, %{"name" => "Mine"}) == {:error, :not_found}
     assert Tags.delete(s, ctx.bob_tag.id) == {:error, :not_found}
 
-    assert {:error, {:invalid, %{"parent_id" => "does not exist"}}} =
+    assert {:error, {:invalid, %{"parent_id" => %{code: :not_found}}}} =
              Categories.create(s, %{
                "name" => "X",
                "parent_id" => category_id(ctx.bob.scope, "Food")

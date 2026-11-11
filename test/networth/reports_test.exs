@@ -185,7 +185,7 @@ defmodule Networth.ReportsTest do
     end
 
     test "requires a valid period", ctx do
-      assert {:error, {:invalid, %{"from" => "is required"}}} =
+      assert {:error, {:invalid, %{"from" => %{code: :required}}}} =
                Reports.income_expense(ctx.scope, %{"to" => "2026-10-31"})
 
       assert {:error, {:invalid, %{"to" => _}}} =
@@ -218,7 +218,8 @@ defmodule Networth.ReportsTest do
     end
 
     test "requires a date", ctx do
-      assert {:error, {:invalid, %{"on" => "is required"}}} = Reports.balances(ctx.scope, %{})
+      assert {:error, {:invalid, %{"on" => %{code: :required}}}} =
+               Reports.balances(ctx.scope, %{})
     end
   end
 

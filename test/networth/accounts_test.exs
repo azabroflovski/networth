@@ -34,10 +34,10 @@ defmodule Networth.AccountsTest do
     assert {:error, {:invalid, %{"type" => _}}} =
              Accounts.create(scope, %{"name" => "X", "type" => "income", "currency" => "USD"})
 
-    assert {:error, {:invalid, %{"currency" => "is not supported"}}} =
+    assert {:error, {:invalid, %{"currency" => %{code: :unsupported_currency}}}} =
              Accounts.create(scope, %{"name" => "X", "type" => "cash", "currency" => "XXX"})
 
-    assert {:error, {:invalid, %{"opening_balance" => "JPY allows at most 0 decimal places"}}} =
+    assert {:error, {:invalid, %{"opening_balance" => %{code: :too_many_decimals}}}} =
              Accounts.create(scope, %{
                "name" => "X",
                "type" => "cash",
@@ -56,10 +56,26 @@ defmodule Networth.AccountsTest do
     assert Accounts.list(scope) == []
   end
 
+  test "reports every invalid field at once", %{scope: scope} do
+    assert {:error, {:invalid, errors}} =
+             Accounts.create(scope, %{
+               "type" => "piggy",
+               "currency" => "XXX",
+               "opened_on" => "soon"
+             })
+
+    assert %{
+             "name" => %{code: :required},
+             "type" => %{code: :invalid_choice},
+             "currency" => %{code: :unsupported_currency},
+             "opened_on" => %{code: :invalid_date}
+           } = errors
+  end
+
   test "names are unique among active accounts", %{scope: scope} do
     account = account!(scope, %{"name" => "Cash"})
 
-    assert {:error, {:invalid, %{"name" => "already exists"}}} =
+    assert {:error, {:invalid, %{"name" => %{code: :already_exists}}}} =
              Accounts.create(scope, %{"name" => "cash", "type" => "cash", "currency" => "EUR"})
 
     {:ok, _} = Accounts.update(scope, account.id, %{"archived" => true})
@@ -77,7 +93,7 @@ defmodule Networth.AccountsTest do
     assert {:ok, %{archived_at: %DateTime{}}} =
              Accounts.update(scope, account.id, %{"archived" => true})
 
-    assert {:error, {:invalid, %{"account_id" => "is archived"}}} =
+    assert {:error, {:invalid, %{"account_id" => %{code: :archived}}}} =
              Ledger.post(scope, %{"type" => "income", "account_id" => account.id, "amount" => "1"})
 
     assert {:ok, %{archived_at: nil}} = Accounts.update(scope, account.id, %{"archived" => false})

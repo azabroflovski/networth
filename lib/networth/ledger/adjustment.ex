@@ -6,9 +6,11 @@ defmodule Networth.Ledger.Adjustment do
 
   def adjust_balance(%Scope{} = scope, account_id, params) do
     with id when is_binary(id) <- Params.cast_id(account_id),
-         {:ok, occurred_on} <-
-           Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
-         {:ok, description} <- Params.string(params, "description", max: 500) do
+         {:ok, %{occurred_on: occurred_on, description: description}} <-
+           Params.all(
+             occurred_on: Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
+             description: Params.string(params, "description", max: 500)
+           ) do
       DB.transaction(fn ->
         # FOR UPDATE keeps postings to this account out until we commit, so
         # the difference is computed against a stable balance.
@@ -21,7 +23,7 @@ defmodule Networth.Ledger.Adjustment do
             [id, scope.workspace_id]
           ) || DB.rollback(:not_found)
 
-        if account.archived_at, do: DB.rollback({:invalid, %{"account_id" => "is archived"}})
+        if account.archived_at, do: DB.rollback({:invalid, %{"account_id" => %{code: :archived}}})
 
         actual =
           case Params.amount(params, "balance", account.currency, required: true) do

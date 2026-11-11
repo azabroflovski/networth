@@ -48,8 +48,11 @@ defmodule Networth.Categories do
   end
 
   def create(%Scope{} = scope, params) do
-    with {:ok, name} <- Params.string(params, "name", required: true),
-         {:ok, parent_id} <- Params.id(params, "parent_id"),
+    with {:ok, %{name: name, parent_id: parent_id}} <-
+           Params.all(
+             name: Params.string(params, "name", required: true),
+             parent_id: Params.id(params, "parent_id")
+           ),
          {:ok, parent} <- fetch_parent(scope, parent_id),
          {:ok, kind} <- kind(params, parent) do
       sql = """
@@ -78,8 +81,8 @@ defmodule Networth.Categories do
   defp fetch_parent(scope, parent_id) do
     case get(scope, parent_id) do
       {:ok, %{parent_id: nil} = parent} -> {:ok, parent}
-      {:ok, _} -> Params.invalid("parent_id", "must be a top-level category")
-      {:error, :not_found} -> Params.invalid("parent_id", "does not exist")
+      {:ok, _} -> Params.invalid("parent_id", :not_top_level)
+      {:error, :not_found} -> Params.invalid("parent_id", :not_found)
     end
   end
 
@@ -88,15 +91,18 @@ defmodule Networth.Categories do
   defp kind(params, parent) do
     case Map.get(params, "kind", parent.kind) do
       kind when kind == parent.kind -> {:ok, kind}
-      _ -> Params.invalid("kind", "must match the parent category")
+      _ -> Params.invalid("kind", :parent_kind_mismatch)
     end
   end
 
   @doc "Renames and/or archives (`\"archived\" => true`) a category."
   def update(%Scope{} = scope, id, params) do
     with {:ok, category} <- get(scope, id),
-         {:ok, name} <- Params.string(params, "name", default: category.name),
-         {:ok, archived} <- Params.boolean(params, "archived") do
+         {:ok, %{name: name, archived: archived}} <-
+           Params.all(
+             name: Params.string(params, "name", default: category.name),
+             archived: Params.boolean(params, "archived")
+           ) do
       DB.transact(fn ->
         with {:ok, updated} <-
                """
@@ -130,7 +136,7 @@ defmodule Networth.Categories do
 
   defp handle_write({:error, error}) do
     case DB.constraint_violation(error) do
-      {:unique_violation, "categories_name_index"} -> Params.invalid("name", "already exists")
+      {:unique_violation, "categories_name_index"} -> Params.invalid("name", :already_exists)
       _ -> raise error
     end
   end

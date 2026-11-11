@@ -445,6 +445,45 @@ defmodule Networth.Web.RouterTest do
     assert {200, %{"status" => "ok"}} = request(:get, "/health")
   end
 
+  test "validation errors carry a code, details and a message" do
+    {token, ws} = register("codes@example.com")
+
+    {201, %{"account" => yen}} =
+      request(
+        :post,
+        "/api/workspaces/#{ws}/accounts",
+        %{name: "Yen", type: "cash", currency: "JPY"},
+        token
+      )
+
+    assert {422, %{"error" => "invalid", "errors" => errors}} =
+             request(
+               :post,
+               "/api/workspaces/#{ws}/transactions",
+               %{type: "income", account_id: yen["id"], amount: "1.5", occurred_on: "soon"},
+               token
+             )
+
+    assert errors == %{
+             "occurred_on" => %{"code" => "invalid_date", "message" => "must be an ISO 8601 date"}
+           }
+
+    assert {422, %{"errors" => %{"amount" => amount_error}}} =
+             request(
+               :post,
+               "/api/workspaces/#{ws}/transactions",
+               %{type: "income", account_id: yen["id"], amount: "1.5"},
+               token
+             )
+
+    assert amount_error == %{
+             "code" => "too_many_decimals",
+             "currency" => "JPY",
+             "decimals" => 0,
+             "message" => "JPY allows at most 0 decimal places"
+           }
+  end
+
   test "validation errors, malformed JSON and unknown routes" do
     {token, ws} = register("errors@example.com")
 

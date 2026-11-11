@@ -24,12 +24,17 @@ defmodule Networth.Budgets do
   default: the current month in the workspace timezone) onwards.
   """
   def set(%Scope{} = scope, params) do
-    with {:ok, category_id} <- Params.id(params, "category_id", required: true),
-         :ok <- expense_category(scope, category_id),
-         {:ok, currency} <- Params.currency(params, "currency"),
-         {:ok, amount} <- Params.amount(params, "amount", currency, required: true),
-         :ok <- if(amount < 0, do: Params.invalid("amount", "must not be negative"), else: :ok),
-         {:ok, month} <- month(scope, params) do
+    with {:ok, %{category_id: category_id, currency: currency, month: month}} <-
+           Params.all(
+             category_id: Params.id(params, "category_id", required: true),
+             currency: Params.currency(params, "currency"),
+             month: month(scope, params)
+           ),
+         {:ok, %{amount: amount}} <-
+           Params.all(
+             category: expense_category(scope, category_id),
+             amount: non_negative_amount(params, currency)
+           ) do
       DB.transaction(fn ->
         previous = effective_limit(scope, category_id, currency, month)
 
@@ -78,12 +83,18 @@ defmodule Networth.Budgets do
     end
   end
 
+  defp non_negative_amount(params, currency) do
+    with {:ok, amount} <- Params.amount(params, "amount", currency, required: true) do
+      if amount < 0, do: Params.invalid("amount", :negative), else: {:ok, amount}
+    end
+  end
+
   defp expense_category(scope, id) do
     case Categories.get(scope, id) do
-      {:ok, %{kind: "expense", archived_at: nil}} -> :ok
-      {:ok, %{kind: "expense"}} -> Params.invalid("category_id", "is archived")
-      {:ok, _} -> Params.invalid("category_id", "must be an expense category")
-      {:error, :not_found} -> Params.invalid("category_id", "does not exist")
+      {:ok, %{kind: "expense", archived_at: nil} = category} -> {:ok, category}
+      {:ok, %{kind: "expense"}} -> Params.invalid("category_id", :archived)
+      {:ok, _} -> Params.invalid("category_id", :wrong_kind, %{expected: "expense"})
+      {:error, :not_found} -> Params.invalid("category_id", :not_found)
     end
   end
 
@@ -151,11 +162,11 @@ defmodule Networth.Budgets do
       value when is_binary(value) ->
         case Date.from_iso8601(value <> "-01") do
           {:ok, date} when byte_size(value) == 7 -> {:ok, date}
-          _ -> Params.invalid("month", "must be YYYY-MM")
+          _ -> Params.invalid("month", :invalid_month)
         end
 
       _ ->
-        Params.invalid("month", "must be YYYY-MM")
+        Params.invalid("month", :invalid_month)
     end
   end
 end

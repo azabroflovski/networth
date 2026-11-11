@@ -137,10 +137,10 @@ defmodule Networth.WorkspacesTest do
     test "rejects duplicate and pointless invitations", ctx do
       {:ok, _} = Workspaces.invite(ctx.family_scope, %{"email" => "invitee@example.com"})
 
-      assert {:error, {:invalid, %{"email" => "already has a pending invitation"}}} =
+      assert {:error, {:invalid, %{"email" => %{code: :already_invited}}}} =
                Workspaces.invite(ctx.family_scope, %{"email" => "invitee@example.com"})
 
-      assert {:error, {:invalid, %{"email" => "is already a member"}}} =
+      assert {:error, {:invalid, %{"email" => %{code: :already_member}}}} =
                Workspaces.invite(ctx.family_scope, %{"email" => "owner@example.com"})
     end
 

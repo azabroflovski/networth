@@ -43,7 +43,7 @@ defmodule Networth.Ledger.Editing do
         :ok
 
       field ->
-        Params.invalid(field, "cannot be changed; reverse the transaction and post a new one")
+        Params.invalid(field, :immutable)
     end
   end
 
@@ -51,7 +51,7 @@ defmodule Networth.Ledger.Editing do
   defp new_description(params) do
     if Map.has_key?(params, "description"),
       do: Params.string(params, "description", max: 500),
-      else: Params.invalid("description", "is required")
+      else: Params.invalid("description", :required)
   end
 
   def set_tags(%Scope{} = scope, id, params) do

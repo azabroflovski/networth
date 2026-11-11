@@ -138,13 +138,24 @@ lib/networth/
 | Результат | HTTP |
 |---|---|
 | `{:ok, value}` / `:ok` | 200, 201 / 204 |
-| `{:error, {:invalid, %{"field" => "message"}}}` | 422 |
+| `{:error, {:invalid, %{"field" => %{code: :too_long, max: 100}}}}` | 422 |
 | `{:error, :not_found}` (в т. ч. чужой workspace) | 404 |
 | `{:error, :forbidden}` | 403 |
 | `{:error, :idempotency_key_reused \| :id_taken \| :last_owner \| :already_reversed}` | 409 |
 | нет или неверный токен | 401 |
 
 ## HTTP API
+
+Ошибка валидации — 422 со всеми неверными полями сразу; у каждого поля стабильный `code`, детали и английский `message`. Клиент показывает текст на своём языке по `code`:
+
+```json
+{"error": "invalid", "errors": {
+  "amount": {"code": "too_many_decimals", "currency": "JPY", "decimals": 0, "message": "JPY allows at most 0 decimal places"},
+  "occurred_on": {"code": "invalid_date", "message": "must be an ISO 8601 date"}
+}}
+```
+
+Коды — в `Networth.Web.JSON.validation_errors/1`.
 
 JSON. Все id — UUID-строки, суммы — десятичные строки. Кроме регистрации, входа и валют нужен `Authorization: Bearer <token>`.
 

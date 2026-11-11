@@ -80,7 +80,7 @@ defmodule Networth.Ledger.PostingTest do
       cash: cash,
       usd: usd
     } do
-      assert {:error, {:invalid, %{"to_account_id" => "must differ from from_account_id"}}} =
+      assert {:error, {:invalid, %{"to_account_id" => %{code: :same_account}}}} =
                Ledger.post(scope, %{
                  "type" => "transfer",
                  "from_account_id" => cash.id,
@@ -88,8 +88,7 @@ defmodule Networth.Ledger.PostingTest do
                  "amount" => "1"
                })
 
-      assert {:error,
-              {:invalid, %{"to_account_id" => "has a different currency; use an exchange"}}} =
+      assert {:error, {:invalid, %{"to_account_id" => %{code: :currency_mismatch}}}} =
                Ledger.post(scope, %{
                  "type" => "transfer",
                  "from_account_id" => usd.id,
@@ -210,7 +209,7 @@ defmodule Networth.Ledger.PostingTest do
       assert balance(scope, yen.id) == 1500
       assert balance(scope, dinar.id) == 1255
 
-      assert {:error, {:invalid, %{"amount" => "JPY allows at most 0 decimal places"}}} =
+      assert {:error, {:invalid, %{"amount" => %{code: :too_many_decimals}}}} =
                Ledger.post(scope, %{"type" => "income", "account_id" => yen.id, "amount" => "1.5"})
     end
 
@@ -344,6 +343,42 @@ defmodule Networth.Ledger.PostingTest do
                Enum.sort([{food, 0}, {transport, 0}])
     end
 
+    test "reports errors of every line at once", %{scope: scope, cash: cash} do
+      assert {:error, {:invalid, errors}} =
+               Ledger.post(scope, %{
+                 "type" => "expense",
+                 "account_id" => cash.id,
+                 "occurred_on" => "nope",
+                 "lines" => [
+                   %{"amount" => "0"},
+                   %{"amount" => "5"},
+                   %{"amount" => "1.001", "category_id" => category_id(scope, "Salary")}
+                 ]
+               })
+
+      # Line errors come after the common fields pass, so occurred_on fails first.
+      assert Map.keys(errors) == ["occurred_on"]
+
+      assert {:error, {:invalid, errors}} =
+               Ledger.post(scope, %{
+                 "type" => "expense",
+                 "account_id" => cash.id,
+                 "lines" => [
+                   %{"amount" => "0"},
+                   %{"amount" => "5"},
+                   %{"amount" => "1.001", "category_id" => category_id(scope, "Salary")}
+                 ]
+               })
+
+      assert %{
+               "lines.0.amount" => %{code: :not_positive},
+               "lines.2.amount" => %{code: :too_many_decimals, currency: "UZS", decimals: 2},
+               "lines.2.category_id" => %{code: :wrong_kind, expected: "expense"}
+             } = errors
+
+      refute Map.has_key?(errors, "lines.1.amount")
+    end
+
     test "validates lines", %{scope: scope, cash: cash} do
       base = %{"type" => "expense", "account_id" => cash.id}
       food = category_id(scope, "Food")
@@ -440,7 +475,7 @@ defmodule Networth.Ledger.PostingTest do
 
     test "only UUIDv7 ids are accepted", %{scope: scope, cash: cash} do
       for id <- ["019a6c2e-7d3e-4b21-9f4a-1c2d3e4f5a6b", "42", 42] do
-        assert {:error, {:invalid, %{"id" => "must be a UUIDv7"}}} =
+        assert {:error, {:invalid, %{"id" => %{code: :invalid_uuid_v7}}}} =
                  Ledger.post(scope, %{
                    "type" => "expense",
                    "account_id" => cash.id,

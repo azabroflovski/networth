@@ -28,10 +28,7 @@ defmodule Networth.Ledger.Correction do
             DB.rollback(:duplicate)
 
           original.type not in Posting.postable_types() ->
-            DB.rollback(
-              {:invalid,
-               %{"id" => "only expense, income, transfer and exchange can be corrected"}}
-            )
+            DB.rollback({:invalid, %{"id" => %{code: :not_correctable}}})
 
           Reversal.reversal_of(original.id) ->
             DB.rollback(:already_reversed)

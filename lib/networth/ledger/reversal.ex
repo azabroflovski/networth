@@ -6,15 +6,18 @@ defmodule Networth.Ledger.Reversal do
 
   def reverse(%Scope{} = scope, id, params \\ %{}) do
     with id when is_binary(id) <- Params.cast_id(id),
-         {:ok, occurred_on} <- Params.date(params, "occurred_on", nil),
-         {:ok, description} <- Params.string(params, "description", max: 500) do
+         {:ok, %{occurred_on: occurred_on, description: description}} <-
+           Params.all(
+             occurred_on: Params.date(params, "occurred_on", nil),
+             description: Params.string(params, "description", max: 500)
+           ) do
       DB.transaction(fn ->
         original = lock(scope, id) || DB.rollback(:not_found)
         existing = reversal_of(original.id)
 
         cond do
           original.type == "reversal" ->
-            DB.rollback({:invalid, %{"id" => "a reversal cannot be reversed"}})
+            DB.rollback({:invalid, %{"id" => %{code: :not_reversible}}})
 
           existing ->
             {:ok, reversal} = History.get(scope, existing.id)

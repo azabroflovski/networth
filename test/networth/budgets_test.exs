@@ -178,7 +178,7 @@ defmodule Networth.BudgetsTest do
     %{scope: other} = register!()
     set!(ctx, %{"category_id" => ctx.food, "amount" => "500", "month" => "2026-11"})
 
-    assert {:error, {:invalid, %{"category_id" => "does not exist"}}} =
+    assert {:error, {:invalid, %{"category_id" => %{code: :not_found}}}} =
              Budgets.set(other, %{"category_id" => ctx.food, "currency" => "UZS", "amount" => "1"})
 
     assert Budgets.list(other) == []

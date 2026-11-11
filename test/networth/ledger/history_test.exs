@@ -139,7 +139,7 @@ defmodule Networth.Ledger.HistoryTest do
             Base.url_encode64("2026-10-01/not-a-uuid"),
             Base.url_encode64("x/y/z")
           ] do
-        assert {:error, {:invalid, %{"cursor" => "is invalid"}}} =
+        assert {:error, {:invalid, %{"cursor" => %{code: :invalid_cursor}}}} =
                  Ledger.list(scope, %{"cursor" => cursor})
       end
     end

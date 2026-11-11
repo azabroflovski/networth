@@ -176,17 +176,17 @@ defmodule Networth.Reports do
   end
 
   defp period(params) do
-    with {:ok, from} <- required_date(params, "from"),
-         {:ok, to} <- required_date(params, "to") do
+    with {:ok, %{from: from, to: to}} <-
+           Params.all(from: required_date(params, "from"), to: required_date(params, "to")) do
       if Date.compare(from, to) == :gt,
-        do: Params.invalid("to", "must not be before from"),
+        do: Params.invalid("to", :before_from),
         else: {:ok, from, to}
     end
   end
 
   defp required_date(params, key) do
     case Params.date(params, key, nil) do
-      {:ok, nil} -> Params.invalid(key, "is required")
+      {:ok, nil} -> Params.invalid(key, :required)
       result -> result
     end
   end

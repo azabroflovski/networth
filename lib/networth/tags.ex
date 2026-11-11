@@ -24,8 +24,11 @@ defmodule Networth.Tags do
   end
 
   def create(%Scope{} = scope, params) do
-    with {:ok, name} <- Params.string(params, "name", required: true, max: 50),
-         {:ok, color} <- color(params, nil) do
+    with {:ok, %{name: name, color: color}} <-
+           Params.all(
+             name: Params.string(params, "name", required: true, max: 50),
+             color: color(params, nil)
+           ) do
       DB.transact(fn ->
         with {:ok, tag} <-
                "INSERT INTO tags (workspace_id, name, color) VALUES ($1, $2, $3) RETURNING *"
@@ -40,8 +43,11 @@ defmodule Networth.Tags do
 
   def update(%Scope{} = scope, id, params) do
     with {:ok, tag} <- get(scope, id),
-         {:ok, name} <- Params.string(params, "name", max: 50, default: tag.name),
-         {:ok, color} <- color(params, tag.color) do
+         {:ok, %{name: name, color: color}} <-
+           Params.all(
+             name: Params.string(params, "name", max: 50, default: tag.name),
+             color: color(params, tag.color)
+           ) do
       DB.transact(fn ->
         with {:ok, updated} <-
                "UPDATE tags SET name = $3, color = $4 WHERE id = $1 AND workspace_id = $2 RETURNING *"
@@ -88,7 +94,7 @@ defmodule Networth.Tags do
         ids
       ])
 
-    if count == length(ids), do: :ok, else: Params.invalid("tag_ids", "contains unknown tags")
+    if count == length(ids), do: :ok, else: Params.invalid("tag_ids", :not_found)
   end
 
   # Absent key keeps the current color, explicit null clears it.
@@ -105,10 +111,10 @@ defmodule Networth.Tags do
 
         if Regex.match?(~r/^#[0-9a-f]{6}$/, value),
           do: {:ok, value},
-          else: Params.invalid("color", "must be a hex color like #1a2b3c")
+          else: Params.invalid("color", :invalid_color)
 
       _ ->
-        Params.invalid("color", "must be a hex color like #1a2b3c")
+        Params.invalid("color", :invalid_color)
     end
   end
 
@@ -116,7 +122,7 @@ defmodule Networth.Tags do
 
   defp handle_write({:error, error}) do
     case DB.constraint_violation(error) do
-      {:unique_violation, "tags_name_index"} -> Params.invalid("name", "already exists")
+      {:unique_violation, "tags_name_index"} -> Params.invalid("name", :already_exists)
       _ -> raise error
     end
   end

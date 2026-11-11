@@ -29,7 +29,7 @@ defmodule Networth.Workspaces.Invitations do
         {:error, error} ->
           case DB.constraint_violation(error) do
             {:unique_violation, "workspace_invitations_pending_index"} ->
-              Params.invalid("email", "already has a pending invitation")
+              Params.invalid("email", :already_invited)
 
             _ ->
               raise error
@@ -48,7 +48,7 @@ defmodule Networth.Workspaces.Invitations do
         [workspace_id, email]
       )
 
-    if member?, do: Params.invalid("email", "is already a member"), else: :ok
+    if member?, do: Params.invalid("email", :already_member), else: :ok
   end
 
   def list_invitations(%Scope{} = scope) do

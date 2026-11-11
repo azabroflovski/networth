@@ -440,7 +440,7 @@ defmodule Networth.Web.Router do
   defp render_empty(error, conn), do: render_error(error, conn)
 
   defp render_error({:error, {:invalid, errors}}, conn),
-    do: send_json(conn, 422, %{error: "invalid", errors: errors})
+    do: send_json(conn, 422, %{error: "invalid", errors: View.validation_errors(errors)})
 
   defp render_error({:error, :invalid_credentials}, conn),
     do: send_json(conn, 401, %{error: "invalid_credentials"})

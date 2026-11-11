@@ -58,12 +58,15 @@ defmodule Networth.Accounts do
   `{:error, :idempotency_key_reused}`.
   """
   def create(%Scope{} = scope, params) do
-    with {:ok, name} <- Params.string(params, "name", required: true),
-         {:ok, type} <- Params.one_of(params, "type", @user_types, required: true),
-         {:ok, currency} <- Params.currency(params, "currency"),
-         {:ok, opening_balance} <- Params.amount(params, "opening_balance", currency),
-         {:ok, opened_on} <- Params.date(params, "opened_on", fn -> Workspaces.today(scope) end),
-         {:ok, key} <- Params.string(params, "idempotency_key") do
+    with {:ok, %{name: name, type: type, currency: currency, opened_on: opened_on, key: key}} <-
+           Params.all(
+             name: Params.string(params, "name", required: true),
+             type: Params.one_of(params, "type", @user_types, required: true),
+             currency: Params.currency(params, "currency"),
+             opened_on: Params.date(params, "opened_on", fn -> Workspaces.today(scope) end),
+             key: Params.string(params, "idempotency_key")
+           ),
+         {:ok, opening_balance} <- Params.amount(params, "opening_balance", currency) do
       hash = key && Params.request_hash(params)
 
       result =
@@ -123,8 +126,11 @@ defmodule Networth.Accounts do
   @doc "Renames and/or archives (`\"archived\" => true`) an account."
   def update(%Scope{} = scope, id, params) do
     with {:ok, account} <- get(scope, id),
-         {:ok, name} <- Params.string(params, "name", default: account.name),
-         {:ok, archived} <- Params.boolean(params, "archived") do
+         {:ok, %{name: name, archived: archived}} <-
+           Params.all(
+             name: Params.string(params, "name", default: account.name),
+             archived: Params.boolean(params, "archived")
+           ) do
       DB.transaction(fn ->
         """
         UPDATE accounts SET name = $3,
@@ -168,8 +174,8 @@ defmodule Networth.Accounts do
       )
 
     cond do
-      is_nil(account) -> Params.invalid(field, "does not exist")
-      account.archived_at -> Params.invalid(field, "is archived")
+      is_nil(account) -> Params.invalid(field, :not_found)
+      account.archived_at -> Params.invalid(field, :archived)
       true -> {:ok, account}
     end
   end
@@ -196,7 +202,7 @@ defmodule Networth.Accounts do
   defp handle_write({:error, error}) do
     case DB.constraint_violation(error) do
       {:unique_violation, "accounts_name_index"} ->
-        DB.rollback({:invalid, %{"name" => "already exists"}})
+        DB.rollback({:invalid, %{"name" => %{code: :already_exists}}})
 
       _ ->
         raise error

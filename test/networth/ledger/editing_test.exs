@@ -52,13 +52,11 @@ defmodule Networth.Ledger.EditingTest do
 
     test "money, accounts, categories and dates cannot be edited", %{scope: scope, tx: tx} do
       for field <- ~w(amount account_id category_id occurred_on lines type) do
-        assert {:error, {:invalid, %{^field => message}}} =
+        assert {:error, {:invalid, %{^field => %{code: :immutable}}}} =
                  Ledger.update(scope, tx.id, %{field => "x", "description" => "y"})
-
-        assert message =~ "reverse"
       end
 
-      assert {:error, {:invalid, %{"description" => "is required"}}} =
+      assert {:error, {:invalid, %{"description" => %{code: :required}}}} =
                Ledger.update(scope, tx.id, %{})
 
       assert {:ok, %{description: "Prodcuts", entries: entries}} = Ledger.get(scope, tx.id)

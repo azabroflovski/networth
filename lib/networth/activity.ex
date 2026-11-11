@@ -49,10 +49,13 @@ defmodule Networth.Activity do
   Paginated by `limit` and `cursor` (the returned `next_cursor`).
   """
   def list(%Scope{} = scope, params \\ %{}) do
-    with {:ok, subject_id} <- Params.id(params, "subject_id"),
-         {:ok, actor_id} <- Params.id(params, "actor_id"),
-         {:ok, cursor} <- Params.id(params, "cursor"),
-         {:ok, limit} <- Params.integer(params, "limit", 50, 1, 200) do
+    with {:ok, %{subject_id: subject_id, actor_id: actor_id, cursor: cursor, limit: limit}} <-
+           Params.all(
+             subject_id: Params.id(params, "subject_id"),
+             actor_id: Params.id(params, "actor_id"),
+             cursor: Params.id(params, "cursor"),
+             limit: Params.integer(params, "limit", 50, 1, 200)
+           ) do
       {conditions, args} =
         {["e.workspace_id = $1"], [scope.workspace_id]}
         |> DB.where(subject_id, &"e.subject_id = #{&1}")

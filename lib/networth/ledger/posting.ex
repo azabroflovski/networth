@@ -16,8 +16,11 @@ defmodule Networth.Ledger.Posting do
   def postable_types, do: @postable_types
 
   def post(%Scope{} = scope, params) do
-    with {:ok, type} <- Params.one_of(params, "type", @postable_types, required: true),
-         {:ok, attrs} <- common_attrs(scope, params) do
+    with {:ok, %{type: type, attrs: attrs}} <-
+           Params.all(
+             type: Params.one_of(params, "type", @postable_types, required: true),
+             attrs: common_attrs(scope, params)
+           ) do
       DB.transaction(fn ->
         transaction = post_new(scope, type, attrs, params)
 
@@ -58,21 +61,16 @@ defmodule Networth.Ledger.Posting do
 
   @doc "Validated params shared by all operation types."
   def common_attrs(scope, params) do
-    with {:ok, occurred_on} <-
-           Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
-         {:ok, description} <- Params.string(params, "description", max: 500),
-         {:ok, tag_ids} <- Params.ids(params, "tag_ids"),
-         {:ok, id} <- client_id(params),
-         {:ok, key} <- Params.string(params, "idempotency_key") do
+    with {:ok, attrs} <-
+           Params.all(
+             occurred_on: Params.date(params, "occurred_on", fn -> Workspaces.today(scope) end),
+             description: Params.string(params, "description", max: 500),
+             tag_ids: Params.ids(params, "tag_ids"),
+             id: client_id(params),
+             idempotency_key: Params.string(params, "idempotency_key")
+           ) do
       {:ok,
-       %{
-         occurred_on: occurred_on,
-         description: description,
-         tag_ids: tag_ids,
-         id: id,
-         idempotency_key: key,
-         idempotency_hash: key && Params.request_hash(params)
-       }}
+       Map.put(attrs, :idempotency_hash, attrs.idempotency_key && Params.request_hash(params))}
     end
   end
 
@@ -82,7 +80,7 @@ defmodule Networth.Ledger.Posting do
     case Params.id(params, "id") do
       {:ok, <<_::binary-14, ?7, _::binary>> = id} -> {:ok, id}
       {:ok, nil} -> {:ok, nil}
-      _ -> Params.invalid("id", "must be a UUIDv7")
+      _ -> Params.invalid("id", :invalid_uuid_v7)
     end
   end
 
@@ -120,8 +118,7 @@ defmodule Networth.Ledger.Posting do
   end
 
   defp build("transfer", scope, params) do
-    with {:ok, from} <- account(scope, params, "from_account_id"),
-         {:ok, to} <- account(scope, params, "to_account_id"),
+    with {:ok, %{from: from, to: to}} <- accounts(scope, params),
          :ok <- distinct_accounts(from, to),
          :ok <- same_currency(from, to),
          {:ok, amount} <-
@@ -131,19 +128,20 @@ defmodule Networth.Ledger.Posting do
   end
 
   defp build("exchange", scope, params) do
-    with {:ok, from} <- account(scope, params, "from_account_id"),
-         {:ok, to} <- account(scope, params, "to_account_id"),
+    with {:ok, %{from: from, to: to}} <- accounts(scope, params),
          :ok <-
            if(from.currency == to.currency,
-             do:
-               Params.invalid("to_account_id", "must be in a different currency; use a transfer"),
+             do: Params.invalid("to_account_id", :same_currency),
              else: :ok
            ),
-         {:ok, from_amount} <-
-           Params.amount(params, "from_amount", from.currency, required: true, positive: true),
-         {:ok, to_amount} <-
-           Params.amount(params, "to_amount", to.currency, required: true, positive: true),
-         {:ok, fee} <- exchange_fee(scope, params, from.currency) do
+         {:ok, %{from_amount: from_amount, to_amount: to_amount, fee: fee}} <-
+           Params.all(
+             from_amount:
+               Params.amount(params, "from_amount", from.currency, required: true, positive: true),
+             to_amount:
+               Params.amount(params, "to_amount", to.currency, required: true, positive: true),
+             fee: exchange_fee(scope, params, from.currency)
+           ) do
       from_exchange = Accounts.system_account(scope.workspace_id, "exchange", from.currency)
       to_exchange = Accounts.system_account(scope.workspace_id, "exchange", to.currency)
 
@@ -190,21 +188,21 @@ defmodule Networth.Ledger.Posting do
     with {:ok, amount} <- Params.amount(params, "fee", currency) do
       cond do
         amount in [nil, 0] and Map.get(params, "fee_category_id") != nil ->
-          Params.invalid("fee_category_id", "requires a fee")
+          Params.invalid("fee_category_id", :requires_fee)
 
         amount in [nil, 0] ->
           {:ok, nil}
 
         amount < 0 ->
-          Params.invalid("fee", "must not be negative")
+          Params.invalid("fee", :negative)
 
         true ->
           case category(scope, %{"category_id" => params["fee_category_id"]}, "expense") do
             {:ok, category_id} ->
               {:ok, %{amount: amount, category_id: category_id}}
 
-            {:error, {:invalid, %{"category_id" => message}}} ->
-              Params.invalid("fee_category_id", message)
+            {:error, {:invalid, %{"category_id" => error}}} ->
+              {:error, {:invalid, %{"fee_category_id" => error}}}
           end
       end
     end
@@ -231,44 +229,41 @@ defmodule Networth.Ledger.Posting do
       {:ok, lines} when is_list(lines) and lines != [] and length(lines) <= @max_lines ->
         cond do
           Map.has_key?(params, "amount") or Map.has_key?(params, "category_id") ->
-            Params.invalid("lines", "cannot be combined with amount or category_id")
+            Params.invalid("lines", :conflicting_fields, %{fields: ["amount", "category_id"]})
 
           not Enum.all?(lines, &is_map/1) ->
-            Params.invalid("lines", "must be a list of objects")
+            Params.invalid("lines", :not_list)
 
           true ->
-            lines
-            |> Enum.with_index()
-            |> Enum.reduce_while({:ok, []}, fn {line, i}, {:ok, acc} ->
-              case line(scope, line, kind, currency, "lines.#{i}.") do
-                {:ok, line} -> {:cont, {:ok, [line | acc]}}
-                error -> {:halt, error}
-              end
-            end)
-            |> case do
-              {:ok, acc} -> within_range(Enum.reverse(acc))
-              error -> error
+            checks =
+              lines
+              |> Enum.with_index()
+              |> Enum.map(fn {line, i} ->
+                {i, line(scope, line, kind, currency, "lines.#{i}.")}
+              end)
+
+            with {:ok, by_index} <- Params.all(checks) do
+              by_index |> Enum.sort() |> Enum.map(&elem(&1, 1)) |> within_range()
             end
         end
 
       _ ->
-        Params.invalid("lines", "must be a list of 1 to #{@max_lines} lines")
+        Params.invalid("lines", :invalid_count, %{min: 1, max: @max_lines})
     end
   end
 
   defp line(scope, params, kind, currency, prefix) do
-    with {:ok, amount} <-
-           Params.amount(params, "amount", currency, required: true, positive: true)
-           |> prefix_error(prefix),
-         {:ok, category_id} <- category(scope, params, kind) |> prefix_error(prefix) do
-      {:ok, %{amount: amount, category_id: category_id}}
-    end
+    Params.all(
+      amount: Params.amount(params, "amount", currency, required: true, positive: true),
+      category_id: category(scope, params, kind)
+    )
+    |> prefix_error(prefix)
   end
 
   defp within_range(lines) do
     if lines |> Enum.map(& &1.amount) |> Enum.sum() <= @max_minor,
       do: {:ok, lines},
-      else: Params.invalid("lines", "total is too large")
+      else: Params.invalid("lines", :too_large)
   end
 
   defp prefix_error({:error, {:invalid, errors}}, prefix) when prefix != "" do
@@ -276,6 +271,13 @@ defmodule Networth.Ledger.Posting do
   end
 
   defp prefix_error(result, _prefix), do: result
+
+  defp accounts(scope, params) do
+    Params.all(
+      from: account(scope, params, "from_account_id"),
+      to: account(scope, params, "to_account_id")
+    )
+  end
 
   defp account(scope, params, field) do
     with {:ok, id} <- Params.id(params, field, required: true) do
@@ -285,23 +287,23 @@ defmodule Networth.Ledger.Posting do
 
   defp distinct_accounts(from, to) do
     if from.id == to.id,
-      do: Params.invalid("to_account_id", "must differ from from_account_id"),
+      do: Params.invalid("to_account_id", :same_account),
       else: :ok
   end
 
   defp same_currency(from, to) do
     if from.currency == to.currency,
       do: :ok,
-      else: Params.invalid("to_account_id", "has a different currency; use an exchange")
+      else: Params.invalid("to_account_id", :currency_mismatch)
   end
 
   defp category(scope, params, kind) do
     with {:ok, id} when not is_nil(id) <- Params.id(params, "category_id") do
       case Categories.get(scope, id) do
         {:ok, %{kind: ^kind, archived_at: nil}} -> {:ok, id}
-        {:ok, %{kind: ^kind}} -> Params.invalid("category_id", "is archived")
-        {:ok, _} -> Params.invalid("category_id", "must be an #{kind} category")
-        {:error, :not_found} -> Params.invalid("category_id", "does not exist")
+        {:ok, %{kind: ^kind}} -> Params.invalid("category_id", :archived)
+        {:ok, _} -> Params.invalid("category_id", :wrong_kind, %{expected: kind})
+        {:error, :not_found} -> Params.invalid("category_id", :not_found)
       end
     end
   end

@@ -11,9 +11,12 @@ defmodule Networth.Users do
   @user_columns "id, email, name, inserted_at"
 
   def register(params) do
-    with {:ok, email} <- email(params),
-         {:ok, name} <- Params.string(params, "name", required: true),
-         {:ok, password} <- password(params) do
+    with {:ok, %{email: email, name: name, password: password}} <-
+           Params.all(
+             email: email(params),
+             name: Params.string(params, "name", required: true),
+             password: password(params)
+           ) do
       DB.transaction(fn ->
         user = insert_user(email, name, password)
         workspace_params = %{"name" => "Personal", "timezone" => params["timezone"]}
@@ -40,7 +43,7 @@ defmodule Networth.Users do
       {:error, error} ->
         case DB.constraint_violation(error) do
           {:unique_violation, "users_email_index"} ->
-            DB.rollback({:invalid, %{"email" => "is already registered"}})
+            DB.rollback({:invalid, %{"email" => %{code: :already_exists}}})
 
           _ ->
             raise error
@@ -146,15 +149,15 @@ defmodule Networth.Users do
 
       if Regex.match?(~r/^[^@\s]+@[^@\s]+$/, email),
         do: {:ok, email},
-        else: Params.invalid("email", "is invalid")
+        else: Params.invalid("email", :invalid_email)
     end
   end
 
   defp password(params) do
     case Map.get(params, "password") do
       p when is_binary(p) and byte_size(p) >= 8 and byte_size(p) <= 256 -> {:ok, p}
-      p when is_binary(p) -> Params.invalid("password", "must be 8 to 256 bytes long")
-      _ -> Params.invalid("password", "is required")
+      p when is_binary(p) -> Params.invalid("password", :invalid_length, %{min: 8, max: 256})
+      _ -> Params.invalid("password", :required)
     end
   end
 
